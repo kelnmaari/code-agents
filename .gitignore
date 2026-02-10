@@ -1,2 +1,8 @@
 clancy/
 .claude/
+code-agents
+code-agents.exe
+*.yaml
+!cmd/code-agents/template.yaml
+.env
+models/

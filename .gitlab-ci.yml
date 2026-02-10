@@ -1,0 +1,130 @@
+stages:
+  - test
+  - build
+  - release
+
+variables:
+  BINARY_NAME: code-agents
+  BUILD_DIR: build
+  CGO_ENABLED: "0"
+
+# ─── Tests ────────────────────────────────────────────────────────────
+test:
+  stage: test
+  image: golang:1.25.5
+  script:
+    - go vet ./...
+    - go test -race -v ./...
+
+# ─── Build matrix ────────────────────────────────────────────────────
+.build_template: &build_template
+  stage: build
+  image: golang:1.25.5
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  before_script:
+    - mkdir -p ${BUILD_DIR}
+    - export VERSION=${CI_COMMIT_TAG#v}
+  script:
+    - |
+      if [ "${GOOS}" = "windows" ]; then
+        EXT=".exe"
+      else
+        EXT=""
+      fi
+      OUTPUT="${BUILD_DIR}/${BINARY_NAME}-${GOOS}-${GOARCH}${EXT}"
+      echo "Building ${OUTPUT} ..."
+      GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "-s -w -X main.version=${VERSION}" -o "${OUTPUT}" ./cmd/code-agents
+  artifacts:
+    paths:
+      - ${BUILD_DIR}/
+    expire_in: 30 days
+
+build:linux-amd64:
+  <<: *build_template
+  variables:
+    GOOS: linux
+    GOARCH: amd64
+
+build:linux-arm64:
+  <<: *build_template
+  variables:
+    GOOS: linux
+    GOARCH: arm64
+
+build:linux-386:
+  <<: *build_template
+  variables:
+    GOOS: linux
+    GOARCH: "386"
+
+build:darwin-amd64:
+  <<: *build_template
+  variables:
+    GOOS: darwin
+    GOARCH: amd64
+
+build:darwin-arm64:
+  <<: *build_template
+  variables:
+    GOOS: darwin
+    GOARCH: arm64
+
+build:windows-amd64:
+  <<: *build_template
+  variables:
+    GOOS: windows
+    GOARCH: amd64
+
+build:windows-arm64:
+  <<: *build_template
+  variables:
+    GOOS: windows
+    GOARCH: arm64
+
+build:windows-386:
+  <<: *build_template
+  variables:
+    GOOS: windows
+    GOARCH: "386"
+
+# ─── Release ─────────────────────────────────────────────────────────
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - build:linux-amd64
+    - build:linux-arm64
+    - build:linux-386
+    - build:darwin-amd64
+    - build:darwin-arm64
+    - build:windows-amd64
+    - build:windows-arm64
+    - build:windows-386
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  script:
+    - export VERSION=${CI_COMMIT_TAG#v}
+    - echo "Creating release ${VERSION}"
+  release:
+    tag_name: ${CI_COMMIT_TAG}
+    name: "Release ${CI_COMMIT_TAG}"
+    description: "Release v${VERSION}"
+    assets:
+      links:
+        - name: "${BINARY_NAME}-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-linux-amd64?job=build:linux-amd64"
+        - name: "${BINARY_NAME}-linux-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-linux-arm64?job=build:linux-arm64"
+        - name: "${BINARY_NAME}-linux-386"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-linux-386?job=build:linux-386"
+        - name: "${BINARY_NAME}-darwin-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-darwin-amd64?job=build:darwin-amd64"
+        - name: "${BINARY_NAME}-darwin-arm64"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-darwin-arm64?job=build:darwin-arm64"
+        - name: "${BINARY_NAME}-windows-amd64.exe"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-windows-amd64.exe?job=build:windows-amd64"
+        - name: "${BINARY_NAME}-windows-arm64.exe"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-windows-arm64.exe?job=build:windows-arm64"
+        - name: "${BINARY_NAME}-windows-386.exe"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/${BUILD_DIR}/${BINARY_NAME}-windows-386.exe?job=build:windows-386"
