@@ -19,9 +19,11 @@ const terminationSignal = "CODEAGENTS_DONE"
 func (o *Orchestrator) runPlanner(ctx context.Context, prompt string) error {
 	plannerID, _ := gonanoid.New()
 
-	// Planner only gets create_task
+	// Planner gets create_task + reconnaissance tools (list_dir, read_file)
 	plannerTools := tool.NewRegistry()
 	plannerTools.Register(tool.NewCreateTask(o.queue, plannerID, 0))
+	plannerTools.Register(tool.NewListDir(o.cfg.Tools.WorkDir))
+	plannerTools.Register(tool.NewReadFile(o.cfg.Tools.WorkDir))
 
 	planner := agent.New(
 		plannerID,
@@ -49,7 +51,7 @@ func (o *Orchestrator) runPlanner(ctx context.Context, prompt string) error {
 			return fmt.Errorf("planner step %d: %w", step+1, result.Error)
 		}
 
-		log.Printf("[planner] output: %s (tools: %d)", truncateLog(result.Output, 100), result.ToolCallsCount)
+		log.Printf("[planner] output: %s (tools: %d)", truncateLog(result.Output, 300), result.ToolCallsCount)
 
 		// Check for termination signal
 		if strings.Contains(result.Output, terminationSignal) {

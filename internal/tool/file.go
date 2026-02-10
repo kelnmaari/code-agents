@@ -13,10 +13,26 @@ const maxFileSize = 1 << 20 // 1 MB
 
 // safePath resolves relPath relative to workDir and verifies it stays inside workDir.
 func safePath(workDir, relPath string) (string, error) {
-	abs := filepath.Join(workDir, filepath.Clean(relPath))
+	// Resolve workDir to absolute path first
+	absWorkDir, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve workdir: %w", err)
+	}
+
+	// Clean the relative path and strip any drive letter / leading slash to force relative
+	cleaned := filepath.Clean(relPath)
+	if filepath.IsAbs(cleaned) {
+		// If the LLM sends an absolute path, try to make it relative to workDir
+		rel, err := filepath.Rel(absWorkDir, cleaned)
+		if err != nil {
+			return "", fmt.Errorf("path traversal detected: %s", relPath)
+		}
+		cleaned = rel
+	}
+
+	abs := filepath.Join(absWorkDir, cleaned)
 	absClean := filepath.Clean(abs)
-	workClean := filepath.Clean(workDir)
-	if !strings.HasPrefix(absClean, workClean+string(filepath.Separator)) && absClean != workClean {
+	if !strings.HasPrefix(absClean, absWorkDir+string(filepath.Separator)) && absClean != absWorkDir {
 		return "", fmt.Errorf("path traversal detected: %s", relPath)
 	}
 	return absClean, nil
@@ -32,8 +48,10 @@ func NewReadFile(workDir string) *ReadFileTool {
 	return &ReadFileTool{workDir: workDir}
 }
 
-func (t *ReadFileTool) Name() string        { return "read_file" }
-func (t *ReadFileTool) Description() string  { return "Read the contents of a file at the given relative path" }
+func (t *ReadFileTool) Name() string { return "read_file" }
+func (t *ReadFileTool) Description() string {
+	return "Read the contents of a file at the given relative path"
+}
 func (t *ReadFileTool) Parameters() interface{} {
 	return map[string]interface{}{
 		"type": "object",
@@ -86,8 +104,10 @@ func NewWriteFile(workDir string) *WriteFileTool {
 	return &WriteFileTool{workDir: workDir}
 }
 
-func (t *WriteFileTool) Name() string        { return "write_file" }
-func (t *WriteFileTool) Description() string  { return "Write content to a file, creating directories as needed" }
+func (t *WriteFileTool) Name() string { return "write_file" }
+func (t *WriteFileTool) Description() string {
+	return "Write content to a file, creating directories as needed"
+}
 func (t *WriteFileTool) Parameters() interface{} {
 	return map[string]interface{}{
 		"type": "object",
@@ -140,8 +160,10 @@ func NewListDir(workDir string) *ListDirTool {
 	return &ListDirTool{workDir: workDir}
 }
 
-func (t *ListDirTool) Name() string        { return "list_dir" }
-func (t *ListDirTool) Description() string  { return "List files and directories at the given relative path" }
+func (t *ListDirTool) Name() string { return "list_dir" }
+func (t *ListDirTool) Description() string {
+	return "List files and directories at the given relative path"
+}
 func (t *ListDirTool) Parameters() interface{} {
 	return map[string]interface{}{
 		"type": "object",

@@ -60,28 +60,14 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 		default:
 		}
 
-		req := llm.ChatRequest{
-			Model:       a.modelCfg.Model,
-			Messages:    a.messages,
-			Temperature: a.modelCfg.Temperature,
-			MaxTokens:   a.modelCfg.MaxTokens,
-		}
-
-		// Only include tools if the registry is non-empty
-		if defs := a.tools.Definitions(); len(defs) > 0 {
-			req.Tools = defs
-		}
-
-		resp, err := a.client.Complete(ctx, req)
+		resp, err := a.handleChatRequest(ctx)
 		if err != nil {
 			return RunResult{Error: fmt.Errorf("llm complete: %w", err)}
 		}
 
 		msg := resp.Choices[0].Message
-		// Append assistant message to conversation
-		a.messages = append(a.messages, msg)
+		a.appendMessage(msg)
 
-		// No tool calls -> agent is done for this step
 		if len(msg.ToolCalls) == 0 {
 			return RunResult{
 				Stop:           true,
@@ -90,39 +76,65 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 			}
 		}
 
-		// Execute each tool call
-		for _, tc := range msg.ToolCalls {
-			t, ok := a.tools.Get(tc.Function.Name)
-			if !ok {
-				// Unknown tool - return error as tool result so LLM can see it
-				a.messages = append(a.messages, llm.ChatMessage{
-					Role:       llm.RoleTool,
-					Content:    fmt.Sprintf("Error: unknown tool %q", tc.Function.Name),
-					ToolCallID: tc.ID,
-				})
-				totalToolCalls++
-				continue
-			}
-
-			result, err := t.Execute(ctx, tc.Function.Arguments)
-			if err != nil {
-				// Critical error (context cancelled, panic, etc)
-				return RunResult{Error: fmt.Errorf("tool %q: %w", tc.Function.Name, err)}
-			}
-
-			a.messages = append(a.messages, llm.ChatMessage{
-				Role:       llm.RoleTool,
-				Content:    result,
-				ToolCallID: tc.ID,
-			})
-			totalToolCalls++
-		}
-		// Continue loop: LLM will see tool results on next iteration
+		totalToolCalls += a.processToolExecution(ctx, msg.ToolCalls)
 	}
 
 	return RunResult{
 		Error: fmt.Errorf("max inner iterations (%d) reached in agent step", maxInnerIterations),
 	}
+}
+
+// handleChatRequest sends messages to the LLM and gets the response.
+func (a *Agent) handleChatRequest(ctx context.Context) (*llm.ChatResponse, error) {
+	req := llm.ChatRequest{
+		Model:       a.modelCfg.Model,
+		Messages:    a.messages,
+		Temperature: a.modelCfg.Temperature,
+		MaxTokens:   a.modelCfg.MaxTokens,
+	}
+
+	if defs := a.tools.Definitions(); len(defs) > 0 {
+		req.Tools = defs
+	}
+
+	return a.client.Complete(ctx, req)
+}
+
+// processToolExecution executes tool calls.
+func (a *Agent) processToolExecution(ctx context.Context, toolCalls []llm.ToolCall) int {
+	totalToolCalls := 0
+
+	for _, tc := range toolCalls {
+		t, ok := a.tools.Get(tc.Function.Name)
+		if !ok {
+			a.appendMessage(llm.ChatMessage{
+				Role:       llm.RoleTool,
+				Content:    fmt.Sprintf("Error: unknown tool %q", tc.Function.Name),
+				ToolCallID: tc.ID,
+			})
+			totalToolCalls++
+			continue
+		}
+
+		result, err := t.Execute(ctx, tc.Function.Arguments)
+		if err != nil {
+			return totalToolCalls
+		}
+
+		a.appendMessage(llm.ChatMessage{
+			Role:       llm.RoleTool,
+			Content:    result,
+			ToolCallID: tc.ID,
+		})
+		totalToolCalls++
+	}
+
+	return totalToolCalls
+}
+
+// appendMessage appends a message to the conversation.
+func (a *Agent) appendMessage(msg llm.ChatMessage) {
+	a.messages = append(a.messages, msg)
 }
 
 // AddUserMessage appends a user message to the conversation.

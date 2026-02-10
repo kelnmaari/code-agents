@@ -28,7 +28,7 @@ func NewRegistry() *Registry {
 // Register adds a tool. Panics on duplicate name.
 func (r *Registry) Register(t Tool) {
 	if _, exists := r.tools[t.Name()]; exists {
-		panic("duplicate tool name: " + t.Name())
+		panic("duplicate tool registration: " + t.Name() + " is already registered")
 	}
 	r.tools[t.Name()] = t
 }
@@ -52,7 +52,11 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 			},
 		})
 	}
-	// Sort for deterministic output
+	return sortToolDefinitions(defs)
+}
+
+// sortToolDefinitions sorts tool definitions by name.
+func sortToolDefinitions(defs []llm.ToolDefinition) []llm.ToolDefinition {
 	sort.Slice(defs, func(i, j int) bool {
 		return defs[i].Function.Name < defs[j].Function.Name
 	})
