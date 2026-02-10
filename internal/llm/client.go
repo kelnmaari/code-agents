@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -40,7 +41,7 @@ func (c *Client) Complete(ctx context.Context, req ChatRequest) (*ChatResponse, 
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	backoff := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	backoff := []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second}
 	var lastErr error
 
 	for attempt := 0; attempt <= len(backoff); attempt++ {
@@ -57,6 +58,7 @@ func (c *Client) Complete(ctx context.Context, req ChatRequest) (*ChatResponse, 
 			lastErr = err
 			// Only retry on retryable errors
 			if attempt < len(backoff) && isRetryable(err) {
+				log.Printf("[llm] request failed (attempt %d/%d), retrying in %s: %v", attempt+1, len(backoff)+1, backoff[attempt], err)
 				continue
 			}
 			return nil, err
