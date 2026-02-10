@@ -135,14 +135,10 @@ func (t *GitCommitTool) Execute(_ context.Context, args string) (string, error) 
 		return "Error: commit message is required and cannot be empty", nil
 	}
 
-	// Stage files — quote each path individually
+	// Stage files
 	var addCmd string
 	if len(params.Files) > 0 {
-		quoted := make([]string, len(params.Files))
-		for i, f := range params.Files {
-			quoted[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(f, "'", "'\"'\"'"))
-		}
-		addCmd = "git add " + strings.Join(quoted, " ")
+		addCmd = "git add -- " + strings.Join(params.Files, " ")
 	} else {
 		addCmd = "git add -A"
 	}
@@ -152,9 +148,9 @@ func (t *GitCommitTool) Execute(_ context.Context, args string) (string, error) 
 		return fmt.Sprintf("Error staging: %s\n%s", err, output), nil
 	}
 
-	// Commit (escape message for shell)
-	escapedMsg := strings.ReplaceAll(params.Message, "'", "'\"'\"'")
-	commitCmd := fmt.Sprintf("git commit -m '%s'", escapedMsg)
+	// Commit — use double quotes for cmd.exe compatibility
+	escapedMsg := strings.ReplaceAll(params.Message, `"`, `\"`)
+	commitCmd := fmt.Sprintf(`git commit -m "%s"`, escapedMsg)
 
 	commitOutput, err := t.runner.Run(commitCmd, nil)
 	if err != nil {
