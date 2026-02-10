@@ -106,7 +106,7 @@ func NewWriteFile(workDir string) *WriteFileTool {
 
 func (t *WriteFileTool) Name() string { return "write_file" }
 func (t *WriteFileTool) Description() string {
-	return "Write content to a file, creating directories as needed"
+	return "Create a NEW file or fully overwrite an existing file. WARNING: this replaces the ENTIRE file. To modify specific parts of an existing file, use edit_file instead."
 }
 func (t *WriteFileTool) Parameters() interface{} {
 	return map[string]interface{}{
@@ -209,4 +209,84 @@ func (t *ListDirTool) Execute(_ context.Context, args string) (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+// --- EditFileTool ---
+
+type EditFileTool struct {
+	workDir string
+}
+
+func NewEditFile(workDir string) *EditFileTool {
+	return &EditFileTool{workDir: workDir}
+}
+
+func (t *EditFileTool) Name() string { return "edit_file" }
+func (t *EditFileTool) Description() string {
+	return "Edit an existing file by searching for an exact text match and replacing it. Use this instead of write_file when modifying existing files."
+}
+func (t *EditFileTool) Parameters() interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Relative path to the file to edit",
+			},
+			"search": map[string]interface{}{
+				"type":        "string",
+				"description": "The exact text to find in the file. Must match exactly, including whitespace and newlines.",
+			},
+			"replace": map[string]interface{}{
+				"type":        "string",
+				"description": "The text to replace the search match with. Can be empty to delete the matched text.",
+			},
+		},
+		"required": []string{"path", "search", "replace"},
+	}
+}
+
+func (t *EditFileTool) Execute(_ context.Context, args string) (string, error) {
+	var params struct {
+		Path    string `json:"path"`
+		Search  string `json:"search"`
+		Replace string `json:"replace"`
+	}
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		return fmt.Sprintf("Error parsing arguments: %s", err), nil
+	}
+
+	if params.Search == "" {
+		return "Error: search text cannot be empty", nil
+	}
+
+	absPath, err := safePath(t.workDir, params.Path)
+	if err != nil {
+		return fmt.Sprintf("Error: %s", err), nil
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Sprintf("Error reading file: %s", err), nil
+	}
+
+	content := string(data)
+
+	// Count occurrences
+	count := strings.Count(content, params.Search)
+	if count == 0 {
+		return fmt.Sprintf("Error: search text not found in %s. Make sure the text matches exactly, including whitespace.", params.Path), nil
+	}
+	if count > 1 {
+		return fmt.Sprintf("Error: search text found %d times in %s. Please use a more specific search string that matches exactly once.", count, params.Path), nil
+	}
+
+	// Replace
+	newContent := strings.Replace(content, params.Search, params.Replace, 1)
+
+	if err := os.WriteFile(absPath, []byte(newContent), 0o644); err != nil {
+		return fmt.Sprintf("Error writing file: %s", err), nil
+	}
+
+	return fmt.Sprintf("File edited: %s (replaced %d bytes with %d bytes)", params.Path, len(params.Search), len(params.Replace)), nil
 }
