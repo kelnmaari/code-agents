@@ -6,7 +6,6 @@ stages:
 variables:
   BINARY_NAME: code-agents
   BUILD_DIR: build
-  CGO_ENABLED: "0"
 
 # ─── Tests ────────────────────────────────────────────────────────────
 test:
@@ -20,6 +19,8 @@ test:
 .build_template: &build_template
   stage: build
   image: golang:1.25.5
+  variables:
+    CGO_ENABLED: "0"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   before_script:
