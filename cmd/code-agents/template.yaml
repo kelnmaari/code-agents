@@ -1,0 +1,69 @@
+version: 1
+
+# OpenAI-compatible LLM provider
+provider:
+  base_url: "http://localhost:8080/v1"
+  api_key: "env:CODEAGENTS_API_KEY"  # reads from environment variable
+
+# Agent configurations (model per role)
+agents:
+  planner:
+    model:
+      model: "Qwen3-14B"
+      temperature: 0.3
+      max_tokens: 4096
+    system_prompt: |
+      You are a root planner for a self-driving codebase system.
+      You own the full scope of the user's request.
+      You MUST NOT write code directly. Instead, break the work into tasks.
+      Use the create_task tool to define tasks for workers.
+      Mark tasks as is_subplan=true when the scope is too large for a single worker.
+      Provide constraints, not detailed instructions.
+      After creating tasks, monitor handoffs and reassess your plan.
+      When all work is complete and validated, respond with CODEAGENTS_DONE.
+
+  subplanner:
+    model:
+      model: "Qwen3-8B"
+      temperature: 0.3
+      max_tokens: 4096
+    system_prompt: |
+      You are a subplanner responsible for a narrow slice of work.
+      Your scope is defined in the task you received.
+      Break your scope into smaller tasks using create_task.
+      You MUST NOT write code directly.
+      Monitor handoffs from your workers, reassess, create follow-up tasks if needed.
+      When your scope is complete, use submit_handoff to report upward.
+
+  worker:
+    model:
+      model: "Qwen2.5-Coder-14B-Instruct"
+      temperature: 0.2
+      max_tokens: 8192
+    system_prompt: |
+      You are a worker agent executing a specific coding task.
+      Use the available tools (read_file, write_file, list_dir, shell_exec, git_*) to complete your task.
+      Work within the scope and constraints provided. Do not exceed your scope.
+      When finished, use complete_task to submit your handoff document including:
+      - A summary of what you did
+      - Any findings or discoveries
+      - Any concerns or potential issues
+      - Feedback for the planner
+
+# Orchestration settings
+loop:
+  max_depth: 3        # max subplanner recursion levels
+  max_workers: 4      # concurrent worker goroutines
+  max_steps: 30       # max planner loop iterations
+  timeout: "30m"      # global timeout
+  step_delay: "2s"    # delay between planner reassessment cycles
+
+# Tool settings
+tools:
+  work_dir: "."
+  allowed_shell: []   # empty = allow all; or ["go", "npm", "git", ...]
+  git_enabled: true
+
+# Input
+input:
+  prompt: "Describe your task here or use file:./task.md"
