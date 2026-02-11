@@ -15,18 +15,20 @@ import (
 
 // CreateTaskTool allows planners to create tasks on the queue.
 type CreateTaskTool struct {
-	queue    *task.Queue
-	parentID string
-	depth    int
+	queue        *task.Queue
+	parentID     string
+	depth        int
+	tasksCreated int // counter: how many tasks this planner has created
+	maxPerTurn   int // max tasks allowed per planner turn
 }
 
 // NewCreateTask creates a tool for adding tasks to the queue.
 func NewCreateTask(queue *task.Queue, parentID string, depth int) *CreateTaskTool {
-	return &CreateTaskTool{queue: queue, parentID: parentID, depth: depth}
+	return &CreateTaskTool{queue: queue, parentID: parentID, depth: depth, maxPerTurn: 3}
 }
 
 func (t *CreateTaskTool) Name() string        { return "create_task" }
-func (t *CreateTaskTool) Description() string  { return "Create a new task for workers or subplanners" }
+func (t *CreateTaskTool) Description() string { return "Create a new task for workers or subplanners" }
 func (t *CreateTaskTool) Parameters() interface{} {
 	return map[string]interface{}{
 		"type": "object",
@@ -63,6 +65,11 @@ func (t *CreateTaskTool) Parameters() interface{} {
 }
 
 func (t *CreateTaskTool) Execute(_ context.Context, args string) (string, error) {
+	// RATE LIMIT: Prevent planner from creating too many tasks in one session
+	if t.tasksCreated >= t.maxPerTurn {
+		return fmt.Sprintf("REJECTED: You have already created %d tasks this turn (limit: %d). Stop creating tasks and yield control. Workers will execute what you have planned.", t.tasksCreated, t.maxPerTurn), nil
+	}
+
 	var params struct {
 		Title       string   `json:"title"`
 		Description string   `json:"description"`
@@ -73,6 +80,11 @@ func (t *CreateTaskTool) Execute(_ context.Context, args string) (string, error)
 	}
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
 		return fmt.Sprintf("Error parsing arguments: %s", err), nil
+	}
+
+	// DEDUPLICATION: Reject if a task with the same scope already exists
+	if params.Scope != "" && t.queue.HasActiveTaskForScope(params.Scope) {
+		return fmt.Sprintf("REJECTED: A task for scope '%s' already exists (pending or in progress). Do NOT create duplicate tasks. Stop and yield control to let workers finish.", params.Scope), nil
 	}
 
 	id, err := gonanoid.New()
@@ -102,7 +114,10 @@ func (t *CreateTaskTool) Execute(_ context.Context, args string) (string, error)
 	}
 
 	t.queue.Push(newTask)
-	return fmt.Sprintf("Task created: %s - %s", id, params.Title), nil
+	t.tasksCreated++
+
+	msg := fmt.Sprintf("Task created (%d/%d): %s - %s. NOTE: This task is queued for WORKERS. Stop and yield.", t.tasksCreated, t.maxPerTurn, id, params.Title)
+	return msg, nil
 }
 
 // --- CompleteTaskTool ---
@@ -118,8 +133,10 @@ func NewCompleteTask(queue *task.Queue, agentID string) *CompleteTaskTool {
 	return &CompleteTaskTool{queue: queue, agentID: agentID}
 }
 
-func (t *CompleteTaskTool) Name() string        { return "complete_task" }
-func (t *CompleteTaskTool) Description() string  { return "Mark a task as completed and submit a handoff document" }
+func (t *CompleteTaskTool) Name() string { return "complete_task" }
+func (t *CompleteTaskTool) Description() string {
+	return "Mark a task as completed and submit a handoff document"
+}
 func (t *CompleteTaskTool) Parameters() interface{} {
 	return map[string]interface{}{
 		"type": "object",
@@ -197,8 +214,10 @@ func NewSubmitHandoff(queue *task.Queue, agentID string) *SubmitHandoffTool {
 	return &SubmitHandoffTool{queue: queue, agentID: agentID}
 }
 
-func (t *SubmitHandoffTool) Name() string        { return "submit_handoff" }
-func (t *SubmitHandoffTool) Description() string  { return "Submit an aggregate handoff document for a subplan task" }
+func (t *SubmitHandoffTool) Name() string { return "submit_handoff" }
+func (t *SubmitHandoffTool) Description() string {
+	return "Submit an aggregate handoff document for a subplan task"
+}
 func (t *SubmitHandoffTool) Parameters() interface{} {
 	return map[string]interface{}{
 		"type": "object",

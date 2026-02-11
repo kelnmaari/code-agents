@@ -52,6 +52,7 @@ type LoopConfig struct {
 	MaxSteps          int           `yaml:"max_steps"`
 	Timeout           string        `yaml:"timeout"`
 	StepDelay         string        `yaml:"step_delay"`
+	AutoApprove       bool          `yaml:"auto_approve"`
 	TimeoutDuration   time.Duration `yaml:"-"`
 	StepDelayDuration time.Duration `yaml:"-"`
 }
@@ -208,9 +209,6 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Loop.MaxSteps < 1 {
 		return fmt.Errorf("loop.max_steps must be >= 1")
-	}
-	if cfg.Input.Prompt == "" {
-		return fmt.Errorf("input.prompt is required")
 	}
 	return nil
 }

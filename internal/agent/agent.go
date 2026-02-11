@@ -58,10 +58,18 @@ func New(
 // It loops: call LLM -> if tool_calls, execute tools and repeat -> if no tool_calls, return.
 // Max 20 inner iterations to prevent infinite loops.
 func (a *Agent) Step(ctx context.Context) RunResult {
+	var result RunResult
 	totalToolCalls := 0
 	nudgeCount := 0
 
-	for i := 0; i < maxInnerIterations; i++ {
+	// Determine max iterations based on role.
+	// Planners should shouldn't loop forever internally.
+	limit := maxInnerIterations
+	if a.role == RolePlanner {
+		limit = 5
+	}
+
+	for i := 0; i < limit; i++ {
 		select {
 		case <-ctx.Done():
 			return RunResult{Error: ctx.Err()}
@@ -96,33 +104,47 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 		}
 
 		a.appendMessage(msg)
+		result.Usage.PromptTokens += resp.Usage.PromptTokens
+		result.Usage.CompletionTokens += resp.Usage.CompletionTokens
+		result.Usage.TotalTokens += resp.Usage.TotalTokens
 
 		if len(msg.ToolCalls) == 0 {
 			// Nudge: if the model described what it wants to do but didn't call tools,
-			// prompt it to actually use them (backward-compatible: no-op for models that stop cleanly)
-			if nudgeCount < maxNudges && looksLikeContinuation(msg.Content) {
-				nudgeCount++
-				logging.File.Printf("[%s/%s] nudging model to use tools (nudge %d/%d)", a.role, a.id[:6], nudgeCount, maxNudges)
-				a.appendMessage(llm.ChatMessage{
-					Role:    llm.RoleUser,
-					Content: "You described what you want to do, but did not call any tools. Please proceed by calling the appropriate tool NOW. Do not describe the action — perform it using a tool call.",
-				})
-				continue
+			// prompt it to actually use them.
+			// CRITICAL: only nudge if we haven't done ANY tool calls in this Turn yet.
+			// If we've already done tools, the model is likely just summarizing/concluding.
+			if totalToolCalls == 0 && nudgeCount < maxNudges {
+				if nudgeMsg := getNudgeMessage(msg.Content); nudgeMsg != "" {
+					nudgeCount++
+					logging.File.Printf("[%s/%s] nudging model: %s (nudge %d/%d)", a.role, a.id[:6], nudgeMsg, nudgeCount, maxNudges)
+					a.appendMessage(llm.ChatMessage{
+						Role:    llm.RoleUser,
+						Content: nudgeMsg,
+					})
+					continue
+				}
 			}
-			return RunResult{
-				Stop:           true,
-				Output:         msg.Content,
-				ToolCallsCount: totalToolCalls,
-			}
+			result.Stop = true
+			result.Output = msg.Content
+			result.ToolCallsCount = totalToolCalls
+			return result
 		}
 
 		nudgeCount = 0 // reset nudge counter on successful tool call
 		totalToolCalls += a.processToolExecution(ctx, msg.ToolCalls)
 	}
 
-	return RunResult{
-		Error: fmt.Errorf("max inner iterations (%d) reached in agent step", maxInnerIterations),
+	// If we reached here, we hit the iteration limit.
+	// For planners, this is a graceful yield. For others, it's an error.
+	if a.role == RolePlanner {
+		logging.File.Printf("[%s/%s] iteration limit (%d) reached, yielding", a.role, a.id[:6], limit)
+		result.Output = "Turn limit reached. Yielding to workers/orchestrator."
+		result.ToolCallsCount = totalToolCalls
+		return result
 	}
+
+	result.Error = fmt.Errorf("max inner iterations (%d) reached in agent step", limit)
+	return result
 }
 
 // handleChatRequest sends messages to the LLM and gets the response.
@@ -207,6 +229,22 @@ func (a *Agent) AddUserMessage(content string) {
 	})
 }
 
+// PruneMessagesByPrefix removes messages whose content starts with the given prefix.
+// This is useful for clearing stale status updates to prevent history bloat.
+// It skips the first message (system prompt).
+func (a *Agent) PruneMessagesByPrefix(prefix string) {
+	if len(a.messages) <= 1 {
+		return
+	}
+	newMsgs := []llm.ChatMessage{a.messages[0]}
+	for i := 1; i < len(a.messages); i++ {
+		if !strings.HasPrefix(a.messages[i].Content, prefix) {
+			newMsgs = append(newMsgs, a.messages[i])
+		}
+	}
+	a.messages = newMsgs
+}
+
 // ID returns the unique identifier of this agent.
 func (a *Agent) ID() string {
 	return a.id
@@ -228,32 +266,52 @@ func truncateStr(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// looksLikeContinuation returns true if the model's text response indicates
-// it wants to continue working (but forgot to call a tool).
-func looksLikeContinuation(content string) bool {
+// getNudgeMessage returns a specific nudge message if the agent's response
+// suggests it should have called a tool but didn't. Returns empty string if no nudge needed.
+func getNudgeMessage(content string) string {
 	lower := strings.ToLower(content)
+
+	// Case 1: Already has tool calls or termination signals
+	if strings.Contains(content, "CODEAGENTS_DONE") ||
+		strings.Contains(content, "submit_handoff") ||
+		strings.Contains(content, "Task created:") {
+		return ""
+	}
+
+	// Case 2: Explicit "I'm finished/done" but missing the CODEAGENTS_DONE signal
+	donePhrases := []string{
+		"project is complete",
+		"task is complete",
+		"all tasks are complete",
+		"successfully implemented",
+		"ready for deployment",
+		"consider this task complete",
+		"we can conclude",
+		"project finalized",
+	}
+	for _, phrase := range donePhrases {
+		if strings.Contains(lower, phrase) {
+			return "You said the project/task is complete, but you MUST respond with the exact string 'CODEAGENTS_DONE' to terminate the mission. Please do so now."
+		}
+	}
+
+	// Case 3: Describing actions but no tool calls (Continuation)
 	continuationPhrases := []string{
-		"let me",
-		"i'll ",
-		"i will ",
-		"next,",
-		"next step",
-		"let's ",
-		"now i",
-		"i need to",
-		"i should",
-		"proceed with",
-		"continue with",
-		"let me check",
-		"let me examine",
-		"let me look",
+		"i'll use", "i will use",
+		"i'll call", "i will call",
+		"let me run", "let me list",
+		"let me read", "let me edit",
+		"let me write", "let me initialize",
+		"i need to run", "i need to call",
+		"i will create", "i will add",
 	}
 	for _, phrase := range continuationPhrases {
 		if strings.Contains(lower, phrase) {
-			return true
+			return "You described what you want to do, but did not call any tools. Please proceed by calling the appropriate tool NOW. Do not describe the action — perform it using a tool call."
 		}
 	}
-	return false
+
+	return ""
 }
 
 // parseTextToolCalls attempts to extract tool calls from the model's text output.

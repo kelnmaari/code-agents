@@ -20,6 +20,9 @@ func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 
 	logging.File.Printf("[subplanner-%s] starting for task %s (depth %d)", subplannerID[:6], t.ID[:6], t.Depth)
 
+	// Subplanner is an approved agent because its parent task was approved
+	o.queue.RegisterApprovedAgent(subplannerID)
+
 	// Subplanner gets create_task and submit_handoff
 	subTools := tool.NewRegistry()
 	subTools.Register(tool.NewCreateTask(o.queue, subplannerID, t.Depth))
@@ -48,6 +51,7 @@ func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 		logging.File.Printf("[subplanner-%s] step %d/%d", subplannerID[:6], step+1, o.cfg.Loop.MaxSteps)
 
 		result := subplanner.Step(ctx)
+		o.reportUsage(result.Usage)
 		if result.Error != nil {
 			return fmt.Errorf("subplanner step %d: %w", step+1, result.Error)
 		}
@@ -65,8 +69,9 @@ func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 		case <-time.After(o.cfg.Loop.StepDelayDuration):
 		}
 
-		// Inject status of sub-tasks
+		// Inject status of sub-tasks. Prune old ones.
 		status := o.buildStatusMessage(subplannerID)
+		subplanner.PruneMessagesByPrefix("=== STATUS UPDATE ===")
 		subplanner.AddUserMessage(status)
 	}
 

@@ -35,6 +35,7 @@ type Task struct {
 	AssignedTo  string       `json:"assigned_to,omitempty"`
 	Handoff     *Handoff     `json:"handoff,omitempty"`
 	IsSubplan   bool         `json:"is_subplan"`
+	Approved    bool         `json:"approved"`
 	Depth       int          `json:"depth"`
 	FailReason  string       `json:"fail_reason,omitempty"`
 }

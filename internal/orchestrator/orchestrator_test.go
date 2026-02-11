@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +78,7 @@ func TestBuildStatusMessage_WithTasks(t *testing.T) {
 	// Pull to assign
 	pulled := make(chan *task.Task, 1)
 	go func() {
-		t := orch.queue.Pull(nil)
+		t := orch.queue.Pull(context.TODO())
 		pulled <- t
 	}()
 	// Give queue time to respond

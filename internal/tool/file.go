@@ -80,6 +80,9 @@ func (t *ReadFileTool) Execute(_ context.Context, args string) (string, error) {
 
 	info, err := os.Stat(absPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Sprintf("Error: file %q not found", params.Path), nil
+		}
 		return fmt.Sprintf("Error: %s", err), nil
 	}
 	if info.Size() > maxFileSize {

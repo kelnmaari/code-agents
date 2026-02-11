@@ -21,7 +21,7 @@ type Completer interface {
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
 	Role       Role       `json:"role"`
-	Content    string     `json:"content,omitempty"`
+	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }

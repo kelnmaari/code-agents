@@ -103,6 +103,7 @@ func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) erro
 		}
 
 		result := worker.Step(ctx)
+		o.reportUsage(result.Usage)
 		if result.Error != nil {
 			return fmt.Errorf("worker step %d: %w", i+1, result.Error)
 		}
@@ -122,7 +123,7 @@ func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) erro
 				return nil
 			}
 			logging.File.Printf("[worker-%s] task %s: agent stopped without complete_task, prompting to finalize", agentID[:6], t.ID[:6])
-			worker.AddUserMessage("You have finished your work but did not call complete_task. You MUST call complete_task NOW with a summary of your findings and changes. Do not write any text — just call the tool.")
+			worker.AddUserMessage("You MUST call the 'complete_task' tool to finish this task. Provide a brief summary of what you did. Do NOT just explain in text — you MUST use the tool now to finalize your work.")
 			finalResult := worker.Step(ctx)
 			if finalResult.Error != nil {
 				return fmt.Errorf("worker final step: %w", finalResult.Error)

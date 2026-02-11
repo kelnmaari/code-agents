@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/agent"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
@@ -19,9 +21,13 @@ import (
 
 // Orchestrator coordinates the planner, workers, and subplanners.
 type Orchestrator struct {
-	cfg    *config.Config
-	client llm.Completer
-	queue  *task.Queue
+	cfg     *config.Config
+	client  llm.Completer
+	queue   *task.Queue
+	planner *agent.Agent // Persistent planner instance
+
+	usageMu sync.Mutex
+	usage   llm.Usage
 }
 
 // New creates an orchestrator from the given configuration.
@@ -51,61 +57,126 @@ func (o *Orchestrator) Run(ctx context.Context, prompt string) error {
 	ctx, cancel := context.WithTimeout(ctx, o.cfg.Loop.TimeoutDuration)
 	defer cancel()
 
-	// Phase 1 + 2: Plan and approve (may loop on amend)
-	if err := o.planAndApprove(ctx, prompt); err != nil {
-		return err
-	}
+	// Initial prompt injection (only once)
+	o.ensurePlanner()
+	o.planner.AddUserMessage(prompt)
 
-	// Phase 3: Execute
-	return o.executeWorkers(ctx)
+	step := 0
+	for {
+		step++
+		if step > o.cfg.Loop.MaxSteps {
+			return fmt.Errorf("max planner steps (%d) reached without CODEAGENTS_DONE", o.cfg.Loop.MaxSteps)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		logging.Console.Printf("[orchestrator] phase: Plan & Approve (Turn %d/%d)", step, o.cfg.Loop.MaxSteps)
+		// Phase 1 + 2: Plan and approve
+		done, err := o.planAndApprove(ctx, step)
+		if err != nil {
+			return err
+		}
+		if done {
+			// Check if any tasks failed before finishing
+			if failed := o.queue.FailedCount(); failed > 0 {
+				return fmt.Errorf("mission finished with %d failed task(s)", failed)
+			}
+			return nil
+		}
+
+		// Phase 3: Execute (only if there are pending tasks)
+		pending := o.queue.PendingCount()
+		if pending > 0 {
+			logging.Console.Printf("[orchestrator] phase: Execution (%d tasks)", pending)
+			if err := o.executeWorkers(ctx); err != nil {
+				return err
+			}
+			logging.Console.Println("[orchestrator] phase: Workers finished")
+		} else {
+			// If no tasks pending but not done, we might be in a weird state.
+			// However, usually we just wait a bit and let the planner reassess.
+			time.Sleep(o.cfg.Loop.StepDelayDuration)
+		}
+	}
+}
+
+// ensurePlanner initializes the persistent planner if not already present.
+func (o *Orchestrator) ensurePlanner() {
+	if o.planner != nil {
+		return
+	}
+	o.planner = o.initPlanner()
 }
 
 // planAndApprove runs the planner, displays the plan, and prompts for approval.
-// On amend, clears the queue, re-runs planner with amended prompt, and re-prompts.
-func (o *Orchestrator) planAndApprove(ctx context.Context, prompt string) error {
-	currentPrompt := prompt
+func (o *Orchestrator) planAndApprove(ctx context.Context, step int) (bool, error) {
+	// Run planner. This returns bool indicating mission completion (CODEAGENTS_DONE)
+	done, err := o.runPlanner(ctx, step)
+	if err != nil {
+		return false, fmt.Errorf("planner error: %w", err)
+	}
 
-	for {
-		// Run planner
-		if err := o.runPlanner(ctx, currentPrompt); err != nil {
-			return fmt.Errorf("planner error: %w", err)
-		}
+	if done {
+		return true, nil
+	}
 
-		// Display the plan
-		o.displayPlan()
+	// Check if there are NEW tasks that require approval
+	newTasks := o.queue.UnapprovedPendingCount()
 
-		// Prompt for approval
-		choice, amendment := o.promptApproval()
+	// If no unapproved pending tasks, we yield to workers (no approval needed)
+	if newTasks == 0 {
+		return false, nil
+	}
 
-		switch choice {
-		case "yes":
-			logging.Console.Println("[orchestrator] plan approved by user")
-			logging.File.Println("[orchestrator] plan approved by user")
-			return nil
-		case "no":
-			logging.Console.Println("[orchestrator] plan rejected by user")
-			logging.File.Println("[orchestrator] plan rejected by user")
-			return fmt.Errorf("plan rejected by user")
-		case "amend":
-			logging.Console.Printf("[orchestrator] plan amended: %s", amendment)
-			logging.File.Printf("[orchestrator] plan amended: %s", amendment)
-			o.queue.Clear()
-			currentPrompt = prompt + "\n\nADDITIONAL INSTRUCTIONS FROM USER:\n" + amendment
-			continue
-		}
+	// Auto-approve if configured
+	if o.cfg.Loop.AutoApprove {
+		logging.Console.Printf("[orchestrator] auto-approving %d new tasks", newTasks)
+		o.queue.ApproveTasks()
+		return false, nil
+	}
+
+	// Display and prompt
+	o.displayPlan()
+	choice, amendment := o.promptApproval()
+
+	switch choice {
+	case "yes":
+		logging.Console.Println("[orchestrator] plan approved")
+		o.queue.ApproveTasks()
+		return false, nil // Proceed to execution
+	case "no":
+		return false, fmt.Errorf("plan rejected by user")
+	case "amend":
+		logging.Console.Printf("[orchestrator] plan amended: %s", amendment)
+		o.queue.Clear() // This is bit aggressive but follows existing logic
+		o.planner.AddUserMessage("ADDITIONAL INSTRUCTIONS FROM USER:\n" + amendment)
+		return o.planAndApprove(ctx, step) // Re-plan
+	default:
+		// This case should ideally not be reached due to promptApproval's loop,
+		// but as a safeguard, treat it as a rejection or an internal error.
+		return false, fmt.Errorf("unexpected approval choice: %s", choice)
 	}
 }
 
 // executeWorkers launches the worker pool and waits for all tasks to complete.
 func (o *Orchestrator) executeWorkers(ctx context.Context) error {
 	var wg sync.WaitGroup
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers()
+
+	// Reset batch state for this run
+	o.queue.OpenBatch()
 
 	for i := 0; i < o.cfg.Loop.MaxWorkers; i++ {
 		wg.Add(1)
 		workerID, _ := gonanoid.New()
 		go func(id string) {
 			defer wg.Done()
-			o.runWorker(ctx, id)
+			o.runWorker(workerCtx, id)
 		}(workerID)
 	}
 
@@ -113,18 +184,40 @@ func (o *Orchestrator) executeWorkers(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			cancelWorkers()
 			wg.Wait()
 			return fmt.Errorf("global timeout reached: %w", ctx.Err())
 		case <-time.After(1 * time.Second):
-			if o.queue.AllDone() {
+			executable := o.queue.ExecutablePendingCount()
+			assigned := o.queue.AssignedCount()
+
+			if executable == 0 && assigned == 0 {
+				logging.File.Printf("[orchestrator] no executable tasks left, yielding to planner (total pending: %d)", o.queue.PendingCount())
+				logging.Console.Printf("[orchestrator] Yielding to planner (waiting for re-approval or final review)")
+				// Signal batch closure (Drain) instead of killing workers immediately
+				o.queue.CloseBatch()
 				wg.Wait()
 				return nil
 			}
+
+			// Periodic verbose status
+			logging.File.Printf("[orchestrator] waiting for tasks (executable: %d, busy: %d, total pending: %d)", executable, assigned, o.queue.PendingCount())
 		}
 	}
 }
 
-// displayPlan prints the current plan (all tasks) to the user.
+func (o *Orchestrator) reportUsage(u llm.Usage) {
+	o.usageMu.Lock()
+	o.usage.PromptTokens += u.PromptTokens
+	o.usage.CompletionTokens += u.CompletionTokens
+	o.usage.TotalTokens += u.TotalTokens
+	usage := o.usage
+	o.usageMu.Unlock()
+
+	logging.Console.Printf("[usage] tokens: %d (prompt: %d, completion: %d)", usage.TotalTokens, usage.PromptTokens, usage.CompletionTokens)
+}
+
+// displayPlan prints the current task queue to the console.
 func (o *Orchestrator) displayPlan() {
 	tasks := o.queue.ListAll()
 
@@ -218,31 +311,30 @@ func truncatePlan(s string, maxLen int) string {
 func (o *Orchestrator) buildStatusMessage(parentID string) string {
 	var sb strings.Builder
 	sb.WriteString("=== STATUS UPDATE ===\n")
-	sb.WriteString(fmt.Sprintf("Tasks: %d pending, %d completed, %d failed\n",
-		o.queue.PendingCount(), o.queue.CompletedCount(), o.queue.FailedCount()))
+	sb.WriteString(fmt.Sprintf("Environment: %s/%s\n", runtime.GOOS, runtime.GOARCH))
+	sb.WriteString(fmt.Sprintf("Global: %d pending, %d assigned/busy, %d completed, %d failed\n",
+		o.queue.PendingCount(), len(o.queue.ListAll())-o.queue.PendingCount()-o.queue.CompletedCount()-o.queue.FailedCount(),
+		o.queue.CompletedCount(), o.queue.FailedCount()))
 
-	// Show failed tasks
 	tasks := o.queue.TasksByParent(parentID)
-	for _, t := range tasks {
-		if t.Status == task.StatusFailed {
-			sb.WriteString(fmt.Sprintf("Failed: %q (reason: %s)\n", t.Title, t.FailReason))
+	if len(tasks) > 0 {
+		sb.WriteString("\nYour Tasks:\n")
+		for _, t := range tasks {
+			sb.WriteString(fmt.Sprintf("- [%s] %s (ID: %s)\n", t.Status, t.Title, t.ID))
+			if t.Status == "failed" {
+				sb.WriteString(fmt.Sprintf("  Error: %s\n", t.FailReason))
+			}
 		}
 	}
 
 	// Show recent handoffs
 	handoffs := o.queue.HandoffsFor(parentID)
 	if len(handoffs) > 0 {
-		sb.WriteString("\nRecent handoffs:\n")
+		sb.WriteString("\nRecent handoffs from completed tasks:\n")
 		for _, h := range handoffs {
 			sb.WriteString("---\n")
 			sb.WriteString(fmt.Sprintf("Task: %s\n", h.TaskID))
 			sb.WriteString(fmt.Sprintf("Summary: %s\n", h.Summary))
-			if len(h.Findings) > 0 {
-				sb.WriteString(fmt.Sprintf("Findings: %s\n", strings.Join(h.Findings, "; ")))
-			}
-			if len(h.Concerns) > 0 {
-				sb.WriteString(fmt.Sprintf("Concerns: %s\n", strings.Join(h.Concerns, "; ")))
-			}
 			if len(h.FilesChanged) > 0 {
 				sb.WriteString(fmt.Sprintf("Files changed: %s\n", strings.Join(h.FilesChanged, ", ")))
 			}

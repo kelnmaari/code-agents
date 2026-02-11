@@ -1,5 +1,9 @@
 package agent
 
+import (
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
+)
+
 // Role defines the agent's role in the hierarchy.
 type Role string
 
@@ -19,4 +23,6 @@ type RunResult struct {
 	Error error
 	// ToolCallsCount is the number of tool calls executed in this Step.
 	ToolCallsCount int
+	// Usage is the cumulative token consumption for this Step.
+	Usage llm.Usage
 }

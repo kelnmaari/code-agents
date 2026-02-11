@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/alexflint/go-arg"
 
@@ -20,8 +21,9 @@ var templateContent []byte
 
 // Args defines CLI arguments.
 type Args struct {
-	Config string `arg:"positional" default:"code-agents.yaml" help:"path to configuration file"`
-	Init   bool   `arg:"--init" help:"generate a new configuration file"`
+	Config string   `arg:"-c,--config" default:"code-agents.yaml" help:"path to configuration file"`
+	Init   bool     `arg:"--init" help:"generate a new configuration file"`
+	Prompt []string `arg:"positional" help:"prompt text (overrides config prompt)"`
 }
 
 func (Args) Version() string {
@@ -58,10 +60,20 @@ func main() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	// Resolve prompt
-	prompt, err := cfg.ResolvePrompt()
-	if err != nil {
-		log.Fatalf("Error resolving prompt: %v", err)
+	// Resolve prompt (base from config if not provided via CLI)
+	var prompt string
+	if len(args.Prompt) > 0 {
+		prompt = strings.Join(args.Prompt, " ")
+	} else {
+		var err error
+		prompt, err = cfg.ResolvePrompt()
+		if err != nil {
+			log.Fatalf("Error resolving prompt: %v", err)
+		}
+	}
+
+	if prompt == "" {
+		log.Fatalf("No prompt provided (neither in config nor via command-line)")
 	}
 
 	logging.Console.Printf("Starting code-agents (workers: %d, timeout: %s)",
