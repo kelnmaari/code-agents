@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
@@ -66,6 +67,19 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 		}
 
 		msg := resp.Choices[0].Message
+
+		// Log LLM response
+		log.Printf("[%s/%s] === LLM Response (iter %d) ===", a.role, a.id[:6], i+1)
+		if msg.Content != "" {
+			log.Printf("[%s/%s] Content: %s", a.role, a.id[:6], msg.Content)
+		}
+		if len(msg.ToolCalls) > 0 {
+			log.Printf("[%s/%s] Tool calls: %d", a.role, a.id[:6], len(msg.ToolCalls))
+			for _, tc := range msg.ToolCalls {
+				log.Printf("[%s/%s]   -> %s(%s)", a.role, a.id[:6], tc.Function.Name, truncateStr(tc.Function.Arguments, 500))
+			}
+		}
+
 		a.appendMessage(msg)
 
 		if len(msg.ToolCalls) == 0 {
@@ -97,6 +111,18 @@ func (a *Agent) handleChatRequest(ctx context.Context) (*llm.ChatResponse, error
 		req.Tools = defs
 	}
 
+	// Log outgoing request
+	log.Printf("[%s/%s] === LLM Request (model: %s, messages: %d, tools: %d) ===",
+		a.role, a.id[:6], req.Model, len(req.Messages), len(req.Tools))
+	for i, m := range req.Messages {
+		content := truncateStr(m.Content, 500)
+		if m.ToolCallID != "" {
+			log.Printf("[%s/%s]   msg[%d] role=%s tool_call_id=%s: %s", a.role, a.id[:6], i, m.Role, m.ToolCallID, content)
+		} else {
+			log.Printf("[%s/%s]   msg[%d] role=%s: %s", a.role, a.id[:6], i, m.Role, content)
+		}
+	}
+
 	return a.client.Complete(ctx, req)
 }
 
@@ -105,11 +131,16 @@ func (a *Agent) processToolExecution(ctx context.Context, toolCalls []llm.ToolCa
 	totalToolCalls := 0
 
 	for _, tc := range toolCalls {
+		log.Printf("[%s/%s] === Tool Call: %s ===", a.role, a.id[:6], tc.Function.Name)
+		log.Printf("[%s/%s]   Args: %s", a.role, a.id[:6], truncateStr(tc.Function.Arguments, 1000))
+
 		t, ok := a.tools.Get(tc.Function.Name)
 		if !ok {
+			errMsg := fmt.Sprintf("Error: unknown tool %q", tc.Function.Name)
+			log.Printf("[%s/%s]   Result: %s", a.role, a.id[:6], errMsg)
 			a.appendMessage(llm.ChatMessage{
 				Role:       llm.RoleTool,
-				Content:    fmt.Sprintf("Error: unknown tool %q", tc.Function.Name),
+				Content:    errMsg,
 				ToolCallID: tc.ID,
 			})
 			totalToolCalls++
@@ -118,8 +149,11 @@ func (a *Agent) processToolExecution(ctx context.Context, toolCalls []llm.ToolCa
 
 		result, err := t.Execute(ctx, tc.Function.Arguments)
 		if err != nil {
+			log.Printf("[%s/%s]   Error: %v", a.role, a.id[:6], err)
 			return totalToolCalls
 		}
+
+		log.Printf("[%s/%s]   Result: %s", a.role, a.id[:6], truncateStr(result, 1000))
 
 		a.appendMessage(llm.ChatMessage{
 			Role:       llm.RoleTool,
@@ -157,4 +191,12 @@ func (a *Agent) Messages() []llm.ChatMessage {
 	cp := make([]llm.ChatMessage, len(a.messages))
 	copy(cp, a.messages)
 	return cp
+}
+
+// truncateStr truncates a string to maxLen characters.
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

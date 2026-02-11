@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -34,6 +35,15 @@ func (Args) Description() string {
 func main() {
 	var args Args
 	arg.MustParse(&args)
+
+	// Set up log file (truncated on each run)
+	logFile, err := os.OpenFile("code-agents.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		log.Fatalf("Error creating log file: %v", err)
+	}
+	defer logFile.Close()
+	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 
 	if args.Init {
 		if err := generateTemplate(args.Config); err != nil {

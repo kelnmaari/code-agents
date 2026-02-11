@@ -187,3 +187,27 @@ func (q *Queue) IsTaskCompleted(taskID string) bool {
 	}
 	return false
 }
+
+// Clear resets the queue, removing all tasks and handoffs.
+// Used when re-planning after user amendment.
+func (q *Queue) Clear() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.tasks = make(map[string]*Task)
+	q.pending = make([]*Task, 0)
+	q.handoffs = make(map[string]*Handoff)
+}
+
+// ListAll returns all tasks sorted by creation time.
+func (q *Queue) ListAll() []*Task {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	result := make([]*Task, 0, len(q.tasks))
+	for _, t := range q.tasks {
+		result = append(result, t)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	return result
+}

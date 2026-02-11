@@ -14,3 +14,4 @@ Constraints:
 - All existing tests must continue to pass
 - Create new tests for any extracted functions
 - Commit each logical refactoring step separately with clear messages
+- test build after work and fix the errors
