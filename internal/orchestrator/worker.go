@@ -61,6 +61,7 @@ func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) erro
 	workerTools.Register(tool.NewReadFile(o.cfg.Tools.WorkDir))
 	workerTools.Register(tool.NewWriteFile(o.cfg.Tools.WorkDir))
 	workerTools.Register(tool.NewEditFile(o.cfg.Tools.WorkDir))
+	workerTools.Register(tool.NewReplaceLines(o.cfg.Tools.WorkDir))
 	workerTools.Register(tool.NewListDir(o.cfg.Tools.WorkDir))
 
 	// Shell tool

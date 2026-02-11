@@ -91,7 +91,14 @@ func (t *ReadFileTool) Execute(_ context.Context, args string) (string, error) {
 		return fmt.Sprintf("Error reading file: %s", err), nil
 	}
 
-	return string(data), nil
+	// Add line numbers for use with replace_lines tool
+	lines := strings.Split(string(data), "\n")
+	var sb strings.Builder
+	for i, line := range lines {
+		sb.WriteString(fmt.Sprintf("%4d: %s\n", i+1, line))
+	}
+
+	return sb.String(), nil
 }
 
 // --- WriteFileTool ---
@@ -289,4 +296,99 @@ func (t *EditFileTool) Execute(_ context.Context, args string) (string, error) {
 	}
 
 	return fmt.Sprintf("File edited: %s (replaced %d bytes with %d bytes)", params.Path, len(params.Search), len(params.Replace)), nil
+}
+
+// --- ReplaceLinesTool ---
+
+type ReplaceLinesTool struct {
+	workDir string
+}
+
+func NewReplaceLines(workDir string) *ReplaceLinesTool {
+	return &ReplaceLinesTool{workDir: workDir}
+}
+
+func (t *ReplaceLinesTool) Name() string { return "replace_lines" }
+func (t *ReplaceLinesTool) Description() string {
+	return "Replace a range of lines in a file with new content. Safer than edit_file — uses line numbers instead of text matching. Always read_file first to see line numbers."
+}
+func (t *ReplaceLinesTool) Parameters() interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "Relative path to the file to edit",
+			},
+			"start_line": map[string]interface{}{
+				"type":        "integer",
+				"description": "First line number to replace (1-based, inclusive)",
+			},
+			"end_line": map[string]interface{}{
+				"type":        "integer",
+				"description": "Last line number to replace (1-based, inclusive). Use same as start_line to replace a single line.",
+			},
+			"new_content": map[string]interface{}{
+				"type":        "string",
+				"description": "New content to insert in place of the specified line range. Can be multiple lines (use \\n). Use empty string to delete lines.",
+			},
+		},
+		"required": []string{"path", "start_line", "end_line", "new_content"},
+	}
+}
+
+func (t *ReplaceLinesTool) Execute(_ context.Context, args string) (string, error) {
+	var params struct {
+		Path       string `json:"path"`
+		StartLine  int    `json:"start_line"`
+		EndLine    int    `json:"end_line"`
+		NewContent string `json:"new_content"`
+	}
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		return fmt.Sprintf("Error parsing arguments: %s", err), nil
+	}
+
+	if params.StartLine < 1 {
+		return "Error: start_line must be >= 1", nil
+	}
+	if params.EndLine < params.StartLine {
+		return "Error: end_line must be >= start_line", nil
+	}
+
+	absPath, err := safePath(t.workDir, params.Path)
+	if err != nil {
+		return fmt.Sprintf("Error: %s", err), nil
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Sprintf("Error reading file: %s", err), nil
+	}
+
+	lines := strings.Split(string(data), "\n")
+
+	if params.StartLine > len(lines) {
+		return fmt.Sprintf("Error: start_line %d exceeds file length (%d lines)", params.StartLine, len(lines)), nil
+	}
+	if params.EndLine > len(lines) {
+		params.EndLine = len(lines)
+	}
+
+	// Build new file: lines before + new content + lines after
+	var result []string
+	result = append(result, lines[:params.StartLine-1]...)
+	if params.NewContent != "" {
+		newLines := strings.Split(params.NewContent, "\n")
+		result = append(result, newLines...)
+	}
+	result = append(result, lines[params.EndLine:]...)
+
+	newData := strings.Join(result, "\n")
+	if err := os.WriteFile(absPath, []byte(newData), 0o644); err != nil {
+		return fmt.Sprintf("Error writing file: %s", err), nil
+	}
+
+	replacedCount := params.EndLine - params.StartLine + 1
+	return fmt.Sprintf("Replaced lines %d-%d in %s (%d lines removed, new content inserted)",
+		params.StartLine, params.EndLine, params.Path, replacedCount), nil
 }
