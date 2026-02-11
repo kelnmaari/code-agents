@@ -4,13 +4,19 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
+	"strings"
 
+	gonanoid "github.com/matoous/go-nanoid/v2"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
 )
 
-const maxInnerIterations = 20
+const (
+	maxInnerIterations = 20
+	maxNudges          = 3 // max "nudge" prompts per Step when model responds with text but no tool calls
+)
 
 // Agent wraps an LLM client, conversation history, tool registry, and system prompt.
 // It runs an inner tool-use loop: send messages -> get response -> execute tools -> repeat.
@@ -53,6 +59,7 @@ func New(
 // Max 20 inner iterations to prevent infinite loops.
 func (a *Agent) Step(ctx context.Context) RunResult {
 	totalToolCalls := 0
+	nudgeCount := 0
 
 	for i := 0; i < maxInnerIterations; i++ {
 		select {
@@ -80,9 +87,28 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 			}
 		}
 
+		// Try to parse tool calls from text if model embedded them
+		if len(msg.ToolCalls) == 0 && msg.Content != "" {
+			if synthetic := parseTextToolCalls(msg.Content, a.tools); len(synthetic) > 0 {
+				log.Printf("[%s/%s] parsed %d synthetic tool call(s) from text", a.role, a.id[:6], len(synthetic))
+				msg.ToolCalls = synthetic
+			}
+		}
+
 		a.appendMessage(msg)
 
 		if len(msg.ToolCalls) == 0 {
+			// Nudge: if the model described what it wants to do but didn't call tools,
+			// prompt it to actually use them (backward-compatible: no-op for models that stop cleanly)
+			if nudgeCount < maxNudges && looksLikeContinuation(msg.Content) {
+				nudgeCount++
+				log.Printf("[%s/%s] nudging model to use tools (nudge %d/%d)", a.role, a.id[:6], nudgeCount, maxNudges)
+				a.appendMessage(llm.ChatMessage{
+					Role:    llm.RoleUser,
+					Content: "You described what you want to do, but did not call any tools. Please proceed by calling the appropriate tool NOW. Do not describe the action — perform it using a tool call.",
+				})
+				continue
+			}
 			return RunResult{
 				Stop:           true,
 				Output:         msg.Content,
@@ -90,6 +116,7 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 			}
 		}
 
+		nudgeCount = 0 // reset nudge counter on successful tool call
 		totalToolCalls += a.processToolExecution(ctx, msg.ToolCalls)
 	}
 
@@ -199,4 +226,87 @@ func truncateStr(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// looksLikeContinuation returns true if the model's text response indicates
+// it wants to continue working (but forgot to call a tool).
+func looksLikeContinuation(content string) bool {
+	lower := strings.ToLower(content)
+	continuationPhrases := []string{
+		"let me",
+		"i'll ",
+		"i will ",
+		"next,",
+		"next step",
+		"let's ",
+		"now i",
+		"i need to",
+		"i should",
+		"proceed with",
+		"continue with",
+		"let me check",
+		"let me examine",
+		"let me look",
+	}
+	for _, phrase := range continuationPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseTextToolCalls attempts to extract tool calls from the model's text output.
+// Some models (e.g. SWE-Dev-32B) embed tool calls as text instead of function calls.
+// Patterns detected:
+//   - <next>tool_name</next> with optional JSON
+//   - tool_name({...}) inline
+var textToolCallRe = regexp.MustCompile(`<next>\s*(\w+)\s*</next>`)
+var inlineToolCallRe = regexp.MustCompile(`(\w+)\(\s*(\{[^}]*\})\s*\)`)
+
+func parseTextToolCalls(content string, registry *tool.Registry) []llm.ToolCall {
+	var calls []llm.ToolCall
+
+	// Pattern 1: <next>tool_name</next>
+	if matches := textToolCallRe.FindStringSubmatch(content); len(matches) > 1 {
+		toolName := matches[1]
+		if _, ok := registry.Get(toolName); ok {
+			calls = append(calls, llm.ToolCall{
+				ID:   generateCallID(),
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      toolName,
+					Arguments: "{}",
+				},
+			})
+		}
+	}
+
+	// Pattern 2: tool_name({...}) inline in text
+	if len(calls) == 0 {
+		for _, match := range inlineToolCallRe.FindAllStringSubmatch(content, -1) {
+			if len(match) > 2 {
+				toolName := match[1]
+				args := match[2]
+				if _, ok := registry.Get(toolName); ok {
+					calls = append(calls, llm.ToolCall{
+						ID:   generateCallID(),
+						Type: "function",
+						Function: llm.FunctionCall{
+							Name:      toolName,
+							Arguments: args,
+						},
+					})
+					break // only take the first match
+				}
+			}
+		}
+	}
+
+	return calls
+}
+
+func generateCallID() string {
+	id, _ := gonanoid.New()
+	return "synthetic-" + id
 }
