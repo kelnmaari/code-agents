@@ -63,6 +63,58 @@ code-agents code-agents.yaml
 
 ---
 
+## Docker
+
+### Сборка образа
+
+```bash
+docker build -f Dockerfile.run -t code-agents .
+```
+
+### Запуск
+
+```bash
+docker run --rm -it \
+  -v /path/to/your/project:/workspace \
+  -v /path/to/code-agents.yaml:/config/code-agents.yaml:ro \
+  -e CODEAGENTS_API_KEY=your-api-key \
+  --network host \
+  code-agents
+```
+
+### Параметры запуска
+
+| Параметр | Описание |
+|----------|----------|
+| `-v /path/to/project:/workspace` | Рабочая директория проекта (сюда агенты пишут код) |
+| `-v /path/to/config.yaml:/config/code-agents.yaml:ro` | Файл конфигурации (read-only) |
+| `-e CODEAGENTS_API_KEY=...` | API ключ для LLM провайдера |
+| `--network host` | Доступ к локальному LLM серверу (llama.cpp и т.д.) |
+
+### Примеры
+
+```bash
+# Запуск с промптом из конфига
+docker run --rm -it \
+  -v $(pwd):/workspace \
+  -v $(pwd)/code-agents.yaml:/config/code-agents.yaml:ro \
+  -e CODEAGENTS_API_KEY=sk-xxx \
+  --network host \
+  code-agents
+
+# Запуск с промптом из CLI
+docker run --rm -it \
+  -v $(pwd):/workspace \
+  -v $(pwd)/code-agents.yaml:/config/code-agents.yaml:ro \
+  --network host \
+  code-agents -c /config/code-agents.yaml "Create a REST API server"
+
+# Генерация шаблона конфигурации
+docker run --rm -v $(pwd):/workspace code-agents --init
+```
+
+> **Важно:** В конфигурации `tools.work_dir` должен быть установлен в `.` (по умолчанию), т.к. рабочая директория контейнера — `/workspace`.
+
 ## Конфигурация
 
 Конфигурация задаётся в YAML-файле. Путь указывается как позиционный аргумент (по умолчанию — `code-agents.yaml`).

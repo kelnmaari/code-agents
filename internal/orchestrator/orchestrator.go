@@ -17,14 +17,16 @@ import (
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/task"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
 )
 
 // Orchestrator coordinates the planner, workers, and subplanners.
 type Orchestrator struct {
-	cfg     *config.Config
-	client  llm.Completer
-	queue   *task.Queue
-	planner *agent.Agent // Persistent planner instance
+	cfg             *config.Config
+	client          llm.Completer
+	queue           *task.Queue
+	planner         *agent.Agent         // Persistent planner instance
+	plannerTaskTool *tool.CreateTaskTool // Reference for counter reset
 
 	usageMu sync.Mutex
 	usage   llm.Usage

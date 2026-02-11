@@ -1,0 +1,42 @@
+# =============================================================================
+# Code-Agents Runtime Container
+# =============================================================================
+# Build:  docker build -f Dockerfile.run -t code-agents .
+# Run:    See README.md for full usage instructions.
+# =============================================================================
+
+# --- Stage 1: Build ---
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-s -w" \
+    -o /code-agents \
+    ./cmd/code-agents
+
+# --- Stage 2: Runtime ---
+FROM alpine:3.21
+
+RUN apk add --no-cache \
+    git \
+    bash \
+    curl \
+    openssh-client \
+    ca-certificates
+
+# Create a non-root user for safety
+RUN adduser -D -h /home/agent agent
+USER agent
+
+COPY --from=builder /code-agents /usr/local/bin/code-agents
+
+# /workspace — mount your project here
+# /config    — mount your code-agents.yaml here
+WORKDIR /workspace
+
+ENTRYPOINT ["code-agents"]
+CMD ["-c", "/config/code-agents.yaml"]

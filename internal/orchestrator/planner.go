@@ -21,7 +21,9 @@ func (o *Orchestrator) initPlanner() *agent.Agent {
 
 	// Planner gets create_task + reconnaissance tools (list_dir, read_file) + verification (shell_exec)
 	plannerTools := tool.NewRegistry()
-	plannerTools.Register(tool.NewCreateTask(o.queue, plannerID, 0))
+	createTaskTool := tool.NewCreateTask(o.queue, plannerID, 0)
+	o.plannerTaskTool = createTaskTool // Store reference for counter reset
+	plannerTools.Register(createTaskTool)
 	plannerTools.Register(tool.NewListDir(o.cfg.Tools.WorkDir))
 	plannerTools.Register(tool.NewReadFile(o.cfg.Tools.WorkDir))
 
@@ -42,6 +44,11 @@ func (o *Orchestrator) initPlanner() *agent.Agent {
 // Returns (done, error). done=true means the mission is complete.
 func (o *Orchestrator) runPlanner(ctx context.Context, step int) (bool, error) {
 	o.ensurePlanner()
+
+	// Reset per-turn task creation counter so planner gets a fresh budget each turn
+	if o.plannerTaskTool != nil {
+		o.plannerTaskTool.ResetCounter()
+	}
 
 	logging.Console.Printf("[planner] reassessing (step %d/%d)", step, o.cfg.Loop.MaxSteps)
 	logging.File.Printf("[planner] reassessing (step %d/%d)", step, o.cfg.Loop.MaxSteps)

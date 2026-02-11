@@ -103,6 +103,24 @@
 
 ---
 
+## Вариант E: Протестированный (qwen3-8b + SWE-Dev-32B)
+
+| Роль | Модель | Параметры | Квант | GPU |
+|------|--------|-----------|-------|-----|
+| **Planner** | qwen3-8b-gguf | 8B dense | GGUF | GPU 0 |
+| **Subplanner** | qwen3-8b-gguf | 8B dense | GGUF | GPU 0 |
+| **Worker** | swe-dev-32b-i1-gguf | 32B dense | IQ1 | GPU 1 |
+
+**Характеристика:**
+- Протестированная рабочая конфигурация
+- Planner и Subplanner используют одну модель (Qwen3-8B) — достаточно для декомпозиции задач и координации
+- Worker использует SWE-Dev-32B (importance-1 quant) — специализированная модель для SWE задач, сильное code generation
+- Все три роли работают через один `llama-server` endpoint
+
+> **Примечание:** Это конфигурация, на которой система была реально протестирована и отлажена.
+
+---
+
 ## Сводная таблица
 
 | Вариант | Planner | Subplanner | Worker | Файлы | VRAM | GPU layout |
@@ -111,6 +129,7 @@
 | **B** | Qwen3-14B | Qwen3-4B | Devstral-24B | 26 GB | 34 GB | 0: planner+sub / 1: worker |
 | **C** | Qwen3-Coder-30B-A3B | Qwen3-4B | Qwen2.5-Coder-14B | 30 GB | 35 GB | 0: planner / 1: sub+worker |
 | **D** | Qwen3-8B | Qwen3-4B | Qwen2.5-Coder-7B | 13 GB | 18 GB | 0: все три |
+| **E** ⭐ | qwen3-8b-gguf | qwen3-8b-gguf | swe-dev-32b-i1-gguf | — | — | протестировано |
 
 ---
 

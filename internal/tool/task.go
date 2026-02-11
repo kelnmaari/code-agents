@@ -27,6 +27,12 @@ func NewCreateTask(queue *task.Queue, parentID string, depth int) *CreateTaskToo
 	return &CreateTaskTool{queue: queue, parentID: parentID, depth: depth, maxPerTurn: 3}
 }
 
+// ResetCounter resets the per-turn task creation counter.
+// Must be called at the start of each planner reassessment cycle.
+func (t *CreateTaskTool) ResetCounter() {
+	t.tasksCreated = 0
+}
+
 func (t *CreateTaskTool) Name() string        { return "create_task" }
 func (t *CreateTaskTool) Description() string { return "Create a new task for workers or subplanners" }
 func (t *CreateTaskTool) Parameters() interface{} {
