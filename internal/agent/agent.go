@@ -61,9 +61,12 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 	totalToolCalls := 0
 	nudgeCount := 0
 
-if err := a.handleContext(ctx); err != nil {
-		return RunResult{Error: err}
-	}
+	for i := 0; i < maxInnerIterations; i++ {
+		select {
+		case <-ctx.Done():
+			return RunResult{Error: ctx.Err()}
+		default:
+		}
 
 		resp, err := a.handleChatRequest(ctx)
 		if err != nil {
@@ -307,4 +310,3 @@ func generateCallID() string {
 	id, _ := gonanoid.New()
 	return "synthetic-" + id
 }
-func (a *Agent) handleContext(ctx context.Context) error {\\n\\tselect {\\n\\tcase <-ctx.Done():\\n\\t\\treturn ctx.Err()\\n\\tdefault:\\n\\t\\treturn nil\\n\\t}\\n}",
