@@ -6,3 +6,4 @@ code-agents.exe
 !cmd/code-agents/template.yaml
 .env
 models/
+*.log
