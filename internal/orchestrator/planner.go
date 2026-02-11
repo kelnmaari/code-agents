@@ -3,13 +3,13 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/agent"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
 )
 
@@ -44,18 +44,20 @@ func (o *Orchestrator) runPlanner(ctx context.Context, prompt string) error {
 		default:
 		}
 
-		log.Printf("[planner] step %d/%d", step+1, o.cfg.Loop.MaxSteps)
+		logging.Console.Printf("[planner] step %d/%d", step+1, o.cfg.Loop.MaxSteps)
+		logging.File.Printf("[planner] step %d/%d", step+1, o.cfg.Loop.MaxSteps)
 
 		result := planner.Step(ctx)
 		if result.Error != nil {
 			return fmt.Errorf("planner step %d: %w", step+1, result.Error)
 		}
 
-		log.Printf("[planner] output: %s (tools: %d)", truncateLog(result.Output, 300), result.ToolCallsCount)
+		logging.File.Printf("[planner] output: %s (tools: %d)", truncateLog(result.Output, 300), result.ToolCallsCount)
 
 		// Check for termination signal
 		if strings.Contains(result.Output, terminationSignal) {
-			log.Println("[planner] received CODEAGENTS_DONE")
+			logging.Console.Println("[planner] ✓ CODEAGENTS_DONE")
+			logging.File.Println("[planner] received CODEAGENTS_DONE")
 			return nil
 		}
 

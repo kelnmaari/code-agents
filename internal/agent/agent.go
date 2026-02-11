@@ -3,13 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
 )
 
@@ -61,12 +61,9 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 	totalToolCalls := 0
 	nudgeCount := 0
 
-	for i := 0; i < maxInnerIterations; i++ {
-		select {
-		case <-ctx.Done():
-			return RunResult{Error: ctx.Err()}
-		default:
-		}
+if err := a.handleContext(ctx); err != nil {
+		return RunResult{Error: err}
+	}
 
 		resp, err := a.handleChatRequest(ctx)
 		if err != nil {
@@ -76,21 +73,21 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 		msg := resp.Choices[0].Message
 
 		// Log LLM response
-		log.Printf("[%s/%s] === LLM Response (iter %d) ===", a.role, a.id[:6], i+1)
+		logging.File.Printf("[%s/%s] === LLM Response (iter %d) ===", a.role, a.id[:6], i+1)
 		if msg.Content != "" {
-			log.Printf("[%s/%s] Content: %s", a.role, a.id[:6], msg.Content)
+			logging.File.Printf("[%s/%s] Content: %s", a.role, a.id[:6], msg.Content)
 		}
 		if len(msg.ToolCalls) > 0 {
-			log.Printf("[%s/%s] Tool calls: %d", a.role, a.id[:6], len(msg.ToolCalls))
+			logging.File.Printf("[%s/%s] Tool calls: %d", a.role, a.id[:6], len(msg.ToolCalls))
 			for _, tc := range msg.ToolCalls {
-				log.Printf("[%s/%s]   -> %s(%s)", a.role, a.id[:6], tc.Function.Name, truncateStr(tc.Function.Arguments, 500))
+				logging.File.Printf("[%s/%s]   -> %s(%s)", a.role, a.id[:6], tc.Function.Name, truncateStr(tc.Function.Arguments, 500))
 			}
 		}
 
 		// Try to parse tool calls from text if model embedded them
 		if len(msg.ToolCalls) == 0 && msg.Content != "" {
 			if synthetic := parseTextToolCalls(msg.Content, a.tools); len(synthetic) > 0 {
-				log.Printf("[%s/%s] parsed %d synthetic tool call(s) from text", a.role, a.id[:6], len(synthetic))
+				logging.File.Printf("[%s/%s] parsed %d synthetic tool call(s) from text", a.role, a.id[:6], len(synthetic))
 				msg.ToolCalls = synthetic
 			}
 		}
@@ -102,7 +99,7 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 			// prompt it to actually use them (backward-compatible: no-op for models that stop cleanly)
 			if nudgeCount < maxNudges && looksLikeContinuation(msg.Content) {
 				nudgeCount++
-				log.Printf("[%s/%s] nudging model to use tools (nudge %d/%d)", a.role, a.id[:6], nudgeCount, maxNudges)
+				logging.File.Printf("[%s/%s] nudging model to use tools (nudge %d/%d)", a.role, a.id[:6], nudgeCount, maxNudges)
 				a.appendMessage(llm.ChatMessage{
 					Role:    llm.RoleUser,
 					Content: "You described what you want to do, but did not call any tools. Please proceed by calling the appropriate tool NOW. Do not describe the action — perform it using a tool call.",
@@ -139,14 +136,14 @@ func (a *Agent) handleChatRequest(ctx context.Context) (*llm.ChatResponse, error
 	}
 
 	// Log outgoing request
-	log.Printf("[%s/%s] === LLM Request (model: %s, messages: %d, tools: %d) ===",
+	logging.File.Printf("[%s/%s] === LLM Request (model: %s, messages: %d, tools: %d) ===",
 		a.role, a.id[:6], req.Model, len(req.Messages), len(req.Tools))
 	for i, m := range req.Messages {
 		content := truncateStr(m.Content, 500)
 		if m.ToolCallID != "" {
-			log.Printf("[%s/%s]   msg[%d] role=%s tool_call_id=%s: %s", a.role, a.id[:6], i, m.Role, m.ToolCallID, content)
+			logging.File.Printf("[%s/%s]   msg[%d] role=%s tool_call_id=%s: %s", a.role, a.id[:6], i, m.Role, m.ToolCallID, content)
 		} else {
-			log.Printf("[%s/%s]   msg[%d] role=%s: %s", a.role, a.id[:6], i, m.Role, content)
+			logging.File.Printf("[%s/%s]   msg[%d] role=%s: %s", a.role, a.id[:6], i, m.Role, content)
 		}
 	}
 
@@ -158,13 +155,13 @@ func (a *Agent) processToolExecution(ctx context.Context, toolCalls []llm.ToolCa
 	totalToolCalls := 0
 
 	for _, tc := range toolCalls {
-		log.Printf("[%s/%s] === Tool Call: %s ===", a.role, a.id[:6], tc.Function.Name)
-		log.Printf("[%s/%s]   Args: %s", a.role, a.id[:6], truncateStr(tc.Function.Arguments, 1000))
+		logging.File.Printf("[%s/%s] === Tool Call: %s ===", a.role, a.id[:6], tc.Function.Name)
+		logging.File.Printf("[%s/%s]   Args: %s", a.role, a.id[:6], truncateStr(tc.Function.Arguments, 1000))
 
 		t, ok := a.tools.Get(tc.Function.Name)
 		if !ok {
 			errMsg := fmt.Sprintf("Error: unknown tool %q", tc.Function.Name)
-			log.Printf("[%s/%s]   Result: %s", a.role, a.id[:6], errMsg)
+			logging.File.Printf("[%s/%s]   Result: %s", a.role, a.id[:6], errMsg)
 			a.appendMessage(llm.ChatMessage{
 				Role:       llm.RoleTool,
 				Content:    errMsg,
@@ -176,11 +173,11 @@ func (a *Agent) processToolExecution(ctx context.Context, toolCalls []llm.ToolCa
 
 		result, err := t.Execute(ctx, tc.Function.Arguments)
 		if err != nil {
-			log.Printf("[%s/%s]   Error: %v", a.role, a.id[:6], err)
+			logging.File.Printf("[%s/%s]   Error: %v", a.role, a.id[:6], err)
 			return totalToolCalls
 		}
 
-		log.Printf("[%s/%s]   Result: %s", a.role, a.id[:6], truncateStr(result, 1000))
+		logging.File.Printf("[%s/%s]   Result: %s", a.role, a.id[:6], truncateStr(result, 1000))
 
 		a.appendMessage(llm.ChatMessage{
 			Role:       llm.RoleTool,
@@ -310,3 +307,4 @@ func generateCallID() string {
 	id, _ := gonanoid.New()
 	return "synthetic-" + id
 }
+func (a *Agent) handleContext(ctx context.Context) error {\\n\\tselect {\\n\\tcase <-ctx.Done():\\n\\t\\treturn ctx.Err()\\n\\tdefault:\\n\\t\\treturn nil\\n\\t}\\n}",

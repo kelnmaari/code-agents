@@ -3,13 +3,13 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/agent"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/task"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
 )
@@ -18,7 +18,7 @@ import (
 func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 	subplannerID, _ := gonanoid.New()
 
-	log.Printf("[subplanner-%s] starting for task %s (depth %d)", subplannerID[:6], t.ID[:6], t.Depth)
+	logging.File.Printf("[subplanner-%s] starting for task %s (depth %d)", subplannerID[:6], t.ID[:6], t.Depth)
 
 	// Subplanner gets create_task and submit_handoff
 	subTools := tool.NewRegistry()
@@ -45,7 +45,7 @@ func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 		default:
 		}
 
-		log.Printf("[subplanner-%s] step %d/%d", subplannerID[:6], step+1, o.cfg.Loop.MaxSteps)
+		logging.File.Printf("[subplanner-%s] step %d/%d", subplannerID[:6], step+1, o.cfg.Loop.MaxSteps)
 
 		result := subplanner.Step(ctx)
 		if result.Error != nil {
@@ -54,7 +54,7 @@ func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 
 		// Check if submit_handoff was called (task completed)
 		if o.queue.IsTaskCompleted(t.ID) {
-			log.Printf("[subplanner-%s] task %s completed via handoff", subplannerID[:6], t.ID[:6])
+			logging.File.Printf("[subplanner-%s] task %s completed via handoff", subplannerID[:6], t.ID[:6])
 			return nil
 		}
 

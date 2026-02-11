@@ -3,12 +3,12 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/agent"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/runner"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/task"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
@@ -22,12 +22,13 @@ func (o *Orchestrator) runWorker(ctx context.Context, workerID string) {
 			return // context cancelled
 		}
 
-		log.Printf("[worker-%s] picked up task: %s - %s", workerID[:6], t.ID[:6], t.Title)
+		logging.Console.Printf("[worker-%s] ▶ task: %s", workerID[:6], t.Title)
+		logging.File.Printf("[worker-%s] picked up task: %s - %s", workerID[:6], t.ID[:6], t.Title)
 
 		// Determine if this should be a subplanner
 		if t.IsSubplan && t.Depth < o.cfg.Loop.MaxDepth {
 			if err := o.runSubplanner(ctx, t); err != nil {
-				log.Printf("[worker-%s] subplanner error for task %s: %v", workerID[:6], t.ID[:6], err)
+				logging.File.Printf("[worker-%s] subplanner error for task %s: %v", workerID[:6], t.ID[:6], err)
 				o.queue.Fail(t.ID, err.Error())
 			}
 			continue
@@ -37,13 +38,14 @@ func (o *Orchestrator) runWorker(ctx context.Context, workerID string) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[worker-%s] panic: %v", workerID[:6], r)
+					logging.File.Printf("[worker-%s] panic: %v", workerID[:6], r)
 					o.queue.Fail(t.ID, fmt.Sprintf("panic: %v", r))
 				}
 			}()
 
 			if err := o.executeWorkerTask(ctx, t); err != nil {
-				log.Printf("[worker-%s] task %s error: %v", workerID[:6], t.ID[:6], err)
+				logging.Console.Printf("[worker-%s] ✗ error: %v", workerID[:6], err)
+				logging.File.Printf("[worker-%s] task %s error: %v", workerID[:6], t.ID[:6], err)
 				o.queue.Fail(t.ID, err.Error())
 			}
 		}()
@@ -107,24 +109,27 @@ func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) erro
 
 		// Check if complete_task was called (task is now completed in queue)
 		if o.queue.IsTaskCompleted(t.ID) {
-			log.Printf("[worker-%s] task %s completed via handoff", agentID[:6], t.ID[:6])
+			logging.Console.Printf("[worker-%s] ✓ task completed: %s", agentID[:6], t.Title)
+			logging.File.Printf("[worker-%s] task %s completed via handoff", agentID[:6], t.ID[:6])
 			return nil
 		}
 
 		// If agent stopped without completing, give it one more chance
 		if result.Stop {
 			if o.queue.IsTaskCompleted(t.ID) {
-				log.Printf("[worker-%s] task %s completed via handoff", agentID[:6], t.ID[:6])
+				logging.Console.Printf("[worker-%s] ✓ task completed: %s", agentID[:6], t.Title)
+				logging.File.Printf("[worker-%s] task %s completed via handoff", agentID[:6], t.ID[:6])
 				return nil
 			}
-			log.Printf("[worker-%s] task %s: agent stopped without complete_task, prompting to finalize", agentID[:6], t.ID[:6])
+			logging.File.Printf("[worker-%s] task %s: agent stopped without complete_task, prompting to finalize", agentID[:6], t.ID[:6])
 			worker.AddUserMessage("You have finished your work but did not call complete_task. You MUST call complete_task NOW with a summary of your findings and changes. Do not write any text — just call the tool.")
 			finalResult := worker.Step(ctx)
 			if finalResult.Error != nil {
 				return fmt.Errorf("worker final step: %w", finalResult.Error)
 			}
 			if o.queue.IsTaskCompleted(t.ID) {
-				log.Printf("[worker-%s] task %s completed via handoff (after prompt)", agentID[:6], t.ID[:6])
+				logging.Console.Printf("[worker-%s] ✓ task completed: %s", agentID[:6], t.Title)
+				logging.File.Printf("[worker-%s] task %s completed via handoff (after prompt)", agentID[:6], t.ID[:6])
 				return nil
 			}
 			return fmt.Errorf("worker did not submit handoff for task %s", t.ID)

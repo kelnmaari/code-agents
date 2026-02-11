@@ -4,13 +4,13 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"io"
 	"log"
 	"os"
 
 	"github.com/alexflint/go-arg"
 
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/orchestrator"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/version"
 )
@@ -42,8 +42,7 @@ func main() {
 		log.Fatalf("Error creating log file: %v", err)
 	}
 	defer logFile.Close()
-	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+	logging.Init(logFile)
 
 	if args.Init {
 		if err := generateTemplate(args.Config); err != nil {
@@ -65,18 +64,21 @@ func main() {
 		log.Fatalf("Error resolving prompt: %v", err)
 	}
 
-	log.Printf("Starting code-agents (workers: %d, max_steps: %d, timeout: %s)",
-		cfg.Loop.MaxWorkers, cfg.Loop.MaxSteps, cfg.Loop.Timeout)
-	log.Printf("Planner model: %s, Worker model: %s",
+	logging.Console.Printf("Starting code-agents (workers: %d, timeout: %s)",
+		cfg.Loop.MaxWorkers, cfg.Loop.Timeout)
+	logging.Console.Printf("Planner: %s | Worker: %s",
 		cfg.Agents.Planner.Model.Model, cfg.Agents.Worker.Model.Model)
+	logging.File.Printf("Starting code-agents (workers: %d, max_steps: %d, timeout: %s)",
+		cfg.Loop.MaxWorkers, cfg.Loop.MaxSteps, cfg.Loop.Timeout)
 
 	// Create and run orchestrator
 	orch := orchestrator.New(cfg)
 	if err := orch.Run(context.Background(), prompt); err != nil {
-		log.Fatalf("Error: %v", err)
+		logging.Console.Fatalf("Error: %v", err)
 	}
 
-	log.Println("Code-agents completed successfully.")
+	logging.Console.Println("Code-agents completed successfully.")
+
 }
 
 func generateTemplate(path string) error {

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/task"
 )
 
@@ -79,13 +79,16 @@ func (o *Orchestrator) planAndApprove(ctx context.Context, prompt string) error 
 
 		switch choice {
 		case "yes":
-			log.Println("[orchestrator] plan approved by user")
+			logging.Console.Println("[orchestrator] plan approved by user")
+			logging.File.Println("[orchestrator] plan approved by user")
 			return nil
 		case "no":
-			log.Println("[orchestrator] plan rejected by user")
+			logging.Console.Println("[orchestrator] plan rejected by user")
+			logging.File.Println("[orchestrator] plan rejected by user")
 			return fmt.Errorf("plan rejected by user")
 		case "amend":
-			log.Printf("[orchestrator] plan amended: %s", amendment)
+			logging.Console.Printf("[orchestrator] plan amended: %s", amendment)
+			logging.File.Printf("[orchestrator] plan amended: %s", amendment)
 			o.queue.Clear()
 			currentPrompt = prompt + "\n\nADDITIONAL INSTRUCTIONS FROM USER:\n" + amendment
 			continue
