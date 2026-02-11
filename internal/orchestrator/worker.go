@@ -111,10 +111,22 @@ func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) erro
 			return nil
 		}
 
-		// If agent stopped without completing, it may need another step
+		// If agent stopped without completing, give it one more chance
 		if result.Stop {
-			// Worker stopped talking without completing the task
-			log.Printf("[worker-%s] task %s: agent stopped without complete_task", agentID[:6], t.ID[:6])
+			if o.queue.IsTaskCompleted(t.ID) {
+				log.Printf("[worker-%s] task %s completed via handoff", agentID[:6], t.ID[:6])
+				return nil
+			}
+			log.Printf("[worker-%s] task %s: agent stopped without complete_task, prompting to finalize", agentID[:6], t.ID[:6])
+			worker.AddUserMessage("You have finished your work but did not call complete_task. You MUST call complete_task NOW with a summary of your findings and changes. Do not write any text — just call the tool.")
+			finalResult := worker.Step(ctx)
+			if finalResult.Error != nil {
+				return fmt.Errorf("worker final step: %w", finalResult.Error)
+			}
+			if o.queue.IsTaskCompleted(t.ID) {
+				log.Printf("[worker-%s] task %s completed via handoff (after prompt)", agentID[:6], t.ID[:6])
+				return nil
+			}
 			return fmt.Errorf("worker did not submit handoff for task %s", t.ID)
 		}
 	}
