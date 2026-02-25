@@ -31,6 +31,7 @@ type Task struct {
 	Priority    TaskPriority `json:"priority"`
 	Scope       string       `json:"scope"`
 	Constraints []string     `json:"constraints"`
+	DependsOn   []string     `json:"depends_on,omitempty"` // IDs of tasks that must be Completed before this task can be pulled
 	CreatedAt   time.Time    `json:"created_at"`
 	AssignedTo  string       `json:"assigned_to,omitempty"`
 	Handoff     *Handoff     `json:"handoff,omitempty"`

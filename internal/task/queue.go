@@ -71,6 +71,11 @@ func (q *Queue) Pull(ctx context.Context) *Task {
 				continue
 			}
 
+			// All declared dependencies must be completed before this task can run.
+			if !q.allDepsCompletedLocked(t.DependsOn) {
+				continue
+			}
+
 			// If scope is empty, it's always available.
 			// If scope is set, check if it's currently busy.
 			if t.Scope == "" || q.busyScopes[t.Scope] == "" {
@@ -182,6 +187,18 @@ func (q *Queue) Fail(taskID string, reason string) {
 func (q *Queue) broadcast() {
 	close(q.notify)
 	q.notify = make(chan struct{})
+}
+
+// allDepsCompletedLocked reports whether every task ID in deps is present in the
+// queue and has status StatusCompleted. Caller MUST hold q.mu.
+func (q *Queue) allDepsCompletedLocked(deps []string) bool {
+	for _, depID := range deps {
+		dep, ok := q.tasks[depID]
+		if !ok || dep.Status != StatusCompleted {
+			return false
+		}
+	}
+	return true
 }
 
 // PendingCount returns the number of pending tasks.

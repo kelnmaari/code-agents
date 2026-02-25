@@ -15,6 +15,7 @@ func makeTask(id string, priority TaskPriority) *Task {
 		Title:     "Task " + id,
 		Priority:  priority,
 		CreatedAt: time.Now(),
+		Approved:  true, // pre-approve for tests that don't exercise the approval flow
 	}
 }
 
@@ -206,4 +207,61 @@ func TestQueue_ConcurrentAccess(t *testing.T) {
 		count++
 	}
 	require.Equal(t, numTasks, count)
+}
+
+// TestQueue_DependsOn_BlocksUntilDepCompleted verifies that a worker cannot pick
+// up a task whose dependency has not yet been completed, and that it becomes
+// available as soon as the dependency is marked complete.
+func TestQueue_DependsOn_BlocksUntilDepCompleted(t *testing.T) {
+	q := NewQueue()
+
+	// taskA has no dependencies
+	taskA := makeTask("A", PriorityNormal)
+
+	// taskB depends on taskA — it must NOT be pulled before A is completed
+	taskB := &Task{
+		ID:        "B",
+		Title:     "Task B",
+		Priority:  PriorityNormal,
+		CreatedAt: time.Now().Add(time.Millisecond), // slightly later so priority tie-breaks predictably
+		Approved:  true,
+		DependsOn: []string{"A"},
+	}
+
+	q.Push(taskA)
+	q.Push(taskB)
+
+	ctx := context.Background()
+
+	// Pull should return A (the only task whose deps are met)
+	first := q.Pull(ctx)
+	require.NotNil(t, first)
+	require.Equal(t, "A", first.ID)
+
+	// B is pending but its dep (A) is not completed yet — Pull must block
+	pulledB := make(chan *Task, 1)
+	go func() {
+		pulledB <- q.Pull(ctx)
+	}()
+
+	// Give the goroutine time to block
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-pulledB:
+		t.Fatal("task B should be blocked until task A is completed")
+	default:
+		// expected: still blocking
+	}
+
+	// Complete task A → its deps are now satisfied for B
+	q.Complete("A", &Handoff{TaskID: "A", AgentID: "worker-1", Summary: "done"})
+
+	// Now task B must become available
+	select {
+	case got := <-pulledB:
+		require.NotNil(t, got)
+		require.Equal(t, "B", got.ID)
+	case <-time.After(time.Second):
+		t.Fatal("task B should have been unblocked after task A completed")
+	}
 }

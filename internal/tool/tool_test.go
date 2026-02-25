@@ -194,6 +194,7 @@ func TestIsAllowed_EmptyCommand(t *testing.T) {
 
 func TestCreateTask_Execute(t *testing.T) {
 	q := task.NewQueue()
+	q.RegisterApprovedAgent("parent-1") // tasks from this parent are auto-approved on Push
 	tool := NewCreateTask(q, "parent-1", 0)
 
 	result, err := tool.Execute(context.Background(), `{"title":"Test task","description":"Do the thing","priority":"high"}`)
@@ -216,6 +217,7 @@ func TestCreateTask_Execute(t *testing.T) {
 
 func TestCreateTask_Subplan(t *testing.T) {
 	q := task.NewQueue()
+	q.RegisterApprovedAgent("parent-1") // tasks from this parent are auto-approved on Push
 	tool := NewCreateTask(q, "parent-1", 1)
 
 	_, err := tool.Execute(context.Background(), `{"title":"Sub","description":"Sub work","is_subplan":true}`)
@@ -232,8 +234,8 @@ func TestCreateTask_Subplan(t *testing.T) {
 
 func TestCompleteTask_Execute(t *testing.T) {
 	q := task.NewQueue()
-	// Push a dummy task
-	q.Push(&task.Task{ID: "task-1", Title: "Test"})
+	// Push a dummy task (Approved:true so Pull doesn't block)
+	q.Push(&task.Task{ID: "task-1", Title: "Test", Approved: true})
 	// Pull to assign
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -255,7 +257,7 @@ func TestCompleteTask_Execute(t *testing.T) {
 
 func TestSubmitHandoff_Execute(t *testing.T) {
 	q := task.NewQueue()
-	q.Push(&task.Task{ID: "task-2", Title: "Sub"})
+	q.Push(&task.Task{ID: "task-2", Title: "Sub", Approved: true})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	q.Pull(ctx)
