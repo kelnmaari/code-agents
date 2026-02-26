@@ -16,6 +16,13 @@ var (
 	Console = log.New(io.Discard, "", 0)
 )
 
+func init() {
+	// Default to no-op loggers so callers don't panic before Init is called
+	// (e.g. during tests that don't call Init).
+	File = log.New(io.Discard, "", 0)
+	Console = log.New(io.Discard, "", 0)
+}
+
 // Init sets up both loggers. Call once from main.
 func Init(logFile io.Writer) {
 	File = log.New(logFile, "", log.Ldate|log.Ltime|log.Lmicroseconds)
