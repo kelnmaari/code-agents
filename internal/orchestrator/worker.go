@@ -119,7 +119,7 @@ func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) erro
 	worker := agent.NewWithConfig(
 		agentID,
 		agent.RoleWorker,
-		o.client,
+		o.clientForRole(o.cfg.Agents.Worker.Provider),
 		o.cfg.Agents.Worker.Model,
 		o.cfg.Agents.Worker.SystemPrompt,
 		workerTools,

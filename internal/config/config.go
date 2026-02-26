@@ -34,9 +34,10 @@ type AgentsConfig struct {
 
 // AgentConfig defines model and system prompt for an agent role.
 type AgentConfig struct {
-	Model               ModelConfig `yaml:"model"`
-	SystemPrompt        string      `yaml:"system_prompt"`
-	MaxHistoryMessages  int         `yaml:"max_history_messages"`
+	Model              ModelConfig     `yaml:"model"`
+	SystemPrompt       string          `yaml:"system_prompt"`
+	MaxHistoryMessages int             `yaml:"max_history_messages"`
+	Provider           *ProviderConfig `yaml:"provider,omitempty"`
 }
 
 // ModelConfig specifies LLM model parameters.
@@ -99,6 +100,23 @@ func Load(path string) (*Config, error) {
 	}
 	if err := resolveValue(&cfg.Agents.Worker.SystemPrompt); err != nil {
 		return nil, fmt.Errorf("resolve worker system_prompt: %w", err)
+	}
+
+	// Resolve agent-level provider overrides
+	if cfg.Agents.Planner.Provider != nil {
+		if err := resolveValue(&cfg.Agents.Planner.Provider.APIKey); err != nil {
+			return nil, fmt.Errorf("resolve agents.planner.provider.api_key: %w", err)
+		}
+	}
+	if cfg.Agents.Subplanner.Provider != nil {
+		if err := resolveValue(&cfg.Agents.Subplanner.Provider.APIKey); err != nil {
+			return nil, fmt.Errorf("resolve agents.subplanner.provider.api_key: %w", err)
+		}
+	}
+	if cfg.Agents.Worker.Provider != nil {
+		if err := resolveValue(&cfg.Agents.Worker.Provider.APIKey); err != nil {
+			return nil, fmt.Errorf("resolve agents.worker.provider.api_key: %w", err)
+		}
 	}
 
 	// Parse durations

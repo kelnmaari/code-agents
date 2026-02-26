@@ -32,6 +32,7 @@ type RunResult struct {
 type Orchestrator struct {
 	cfg             *config.Config
 	client          llm.Completer
+	pool            *llm.ProviderPool
 	queue           *task.Queue
 	planner         *agent.Agent         // Persistent planner instance
 	plannerTaskTool *tool.CreateTaskTool // Reference for counter reset
@@ -43,12 +44,31 @@ type Orchestrator struct {
 
 // New creates an orchestrator from the given configuration.
 func New(cfg *config.Config) *Orchestrator {
-	client := llm.NewClient(cfg.Provider.BaseURL, cfg.Provider.APIKey)
+	pool := llm.NewProviderPool()
+	client := pool.Get(cfg.Provider.BaseURL, cfg.Provider.APIKey)
 	return &Orchestrator{
 		cfg:    cfg,
 		client: client,
+		pool:   pool,
 		queue:  task.NewQueue(),
 	}
+}
+
+// clientForRole returns the LLM client for a given agent provider config,
+// falling back to the global client when no override is set.
+func (o *Orchestrator) clientForRole(agentProvider *config.ProviderConfig) llm.Completer {
+	if agentProvider == nil {
+		return o.client
+	}
+	baseURL := agentProvider.BaseURL
+	if baseURL == "" {
+		baseURL = o.cfg.Provider.BaseURL
+	}
+	apiKey := agentProvider.APIKey
+	if apiKey == "" {
+		apiKey = o.cfg.Provider.APIKey
+	}
+	return o.pool.Get(baseURL, apiKey)
 }
 
 // NewWithClient creates an orchestrator with a custom LLM client (for testing).
