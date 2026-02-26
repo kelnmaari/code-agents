@@ -40,6 +40,7 @@ type Task struct {
 	FailReason  string       `json:"fail_reason,omitempty"`
 	RetryCount  int          `json:"retry_count,omitempty"`
 	MaxRetries  int          `json:"max_retries,omitempty"`
+	DependsOn   []string     `json:"depends_on,omitempty"`
 }
 
 // Handoff is the document workers/subplanners send back to planners.
