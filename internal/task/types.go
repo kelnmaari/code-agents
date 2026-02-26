@@ -38,6 +38,7 @@ type Task struct {
 	Approved    bool         `json:"approved"`
 	Depth       int          `json:"depth"`
 	FailReason  string       `json:"fail_reason,omitempty"`
+	DependsOn   []string     `json:"depends_on,omitempty"`
 }
 
 // Handoff is the document workers/subplanners send back to planners.
