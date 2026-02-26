@@ -21,13 +21,14 @@ const (
 // Agent wraps an LLM client, conversation history, tool registry, and system prompt.
 // It runs an inner tool-use loop: send messages -> get response -> execute tools -> repeat.
 type Agent struct {
-	id           string
-	role         Role
-	client       llm.Completer
-	modelCfg     config.ModelConfig
-	systemPrompt string
-	tools        *tool.Registry
-	messages     []llm.ChatMessage
+	id                  string
+	role                Role
+	client              llm.Completer
+	modelCfg            config.ModelConfig
+	systemPrompt        string
+	tools               *tool.Registry
+	messages            []llm.ChatMessage
+	maxHistoryMessages  int
 }
 
 // New creates an agent with the given configuration.
@@ -40,13 +41,30 @@ func New(
 	systemPrompt string,
 	tools *tool.Registry,
 ) *Agent {
+	return NewWithConfig(id, role, client, modelCfg, systemPrompt, tools, 50)
+}
+
+// NewWithConfig creates an agent with explicit maxHistoryMessages.
+func NewWithConfig(
+	id string,
+	role Role,
+	client llm.Completer,
+	modelCfg config.ModelConfig,
+	systemPrompt string,
+	tools *tool.Registry,
+	maxHistoryMessages int,
+) *Agent {
+	if maxHistoryMessages <= 0 {
+		maxHistoryMessages = 50
+	}
 	a := &Agent{
-		id:           id,
-		role:         role,
-		client:       client,
-		modelCfg:     modelCfg,
-		systemPrompt: systemPrompt,
-		tools:        tools,
+		id:                 id,
+		role:               role,
+		client:             client,
+		modelCfg:           modelCfg,
+		systemPrompt:       systemPrompt,
+		tools:              tools,
+		maxHistoryMessages: maxHistoryMessages,
 		messages: []llm.ChatMessage{
 			{Role: llm.RoleSystem, Content: systemPrompt},
 		},
@@ -127,6 +145,7 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 			result.Stop = true
 			result.Output = msg.Content
 			result.ToolCallsCount = totalToolCalls
+			result.ContextUtilization = a.ContextUtilization()
 			return result
 		}
 
@@ -140,9 +159,11 @@ func (a *Agent) Step(ctx context.Context) RunResult {
 		logging.File.Printf("[%s/%s] iteration limit (%d) reached, yielding", a.role, a.id[:6], limit)
 		result.Output = "Turn limit reached. Yielding to workers/orchestrator."
 		result.ToolCallsCount = totalToolCalls
+		result.ContextUtilization = a.ContextUtilization()
 		return result
 	}
 
+	result.ContextUtilization = a.ContextUtilization()
 	result.Error = fmt.Errorf("max inner iterations (%d) reached in agent step", limit)
 	return result
 }
@@ -215,9 +236,69 @@ func (a *Agent) processToolExecution(ctx context.Context, toolCalls []llm.ToolCa
 	return totalToolCalls
 }
 
-// appendMessage appends a message to the conversation.
+// appendMessage appends a message to the conversation and compresses history if needed.
 func (a *Agent) appendMessage(msg llm.ChatMessage) {
 	a.messages = append(a.messages, msg)
+	a.compressHistory()
+}
+
+// compressHistory implements a sliding window to keep message history within maxHistoryMessages.
+// When the history (excluding system prompt) exceeds maxHistoryMessages, it removes the oldest
+// tool-result messages first, then other non-system messages, preserving the system prompt at index 0.
+func (a *Agent) compressHistory() {
+	// messages[0] is always the system prompt; only count messages after it.
+	nonSystem := len(a.messages) - 1
+	if nonSystem <= a.maxHistoryMessages {
+		return
+	}
+
+	toRemove := nonSystem - a.maxHistoryMessages
+
+	logging.File.Printf("[%s/%s] compressHistory: %d messages exceed limit %d, removing %d oldest",
+		a.role, a.id[:6], nonSystem, a.maxHistoryMessages, toRemove)
+
+	// Collect indices (1-based, skipping system prompt) of tool-result messages first.
+	var toolResultIdxs []int
+	for i := 1; i < len(a.messages) && len(toolResultIdxs) < toRemove; i++ {
+		if a.messages[i].Role == llm.RoleTool {
+			toolResultIdxs = append(toolResultIdxs, i)
+		}
+	}
+
+	removed := len(toolResultIdxs)
+	// Build removal set
+	removeSet := make(map[int]bool, len(toolResultIdxs))
+	for _, idx := range toolResultIdxs {
+		removeSet[idx] = true
+	}
+
+	// If not enough tool results, also remove oldest non-system messages
+	if removed < toRemove {
+		for i := 1; i < len(a.messages) && removed < toRemove; i++ {
+			if !removeSet[i] {
+				removeSet[i] = true
+				removed++
+			}
+		}
+	}
+
+	newMsgs := make([]llm.ChatMessage, 0, len(a.messages)-len(removeSet))
+	for i, m := range a.messages {
+		if !removeSet[i] {
+			newMsgs = append(newMsgs, m)
+		}
+	}
+	a.messages = newMsgs
+}
+
+// ContextUtilization returns the ratio of current history size to maxHistoryMessages.
+// A value >= 1.0 means the history is at or over the limit (compression may have occurred).
+func (a *Agent) ContextUtilization() float64 {
+	nonSystem := len(a.messages) - 1
+	if a.maxHistoryMessages <= 0 {
+		return 0
+	}
+	return float64(nonSystem) / float64(a.maxHistoryMessages)
 }
 
 // AddUserMessage appends a user message to the conversation.

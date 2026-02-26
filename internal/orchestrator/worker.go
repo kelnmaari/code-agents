@@ -116,13 +116,14 @@ func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) erro
 	workerTools.Register(tool.NewCompleteTask(o.queue, agentID))
 
 	// Create worker agent
-	worker := agent.New(
+	worker := agent.NewWithConfig(
 		agentID,
 		agent.RoleWorker,
 		o.client,
 		o.cfg.Agents.Worker.Model,
 		o.cfg.Agents.Worker.SystemPrompt,
 		workerTools,
+		o.cfg.Agents.Worker.MaxHistoryMessages,
 	)
 
 	// Inject task description
