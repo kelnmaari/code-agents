@@ -15,8 +15,7 @@ var (
 )
 
 func init() {
-	// Default to discarding output until Init() is called.
-	// This prevents nil pointer dereferences in tests.
+	// Default to discard so callers don't need nil checks before Init is called.
 	File = log.New(io.Discard, "", 0)
 	Console = log.New(io.Discard, "", 0)
 }
