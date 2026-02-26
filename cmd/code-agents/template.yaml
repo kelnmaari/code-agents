@@ -8,6 +8,10 @@ provider:
 # Agent configurations (model per role)
 agents:
   planner:
+    # Optional: override global provider for this role
+    # provider:
+    #   base_url: "https://api.anthropic.com/v1"
+    #   api_key: "env:ANTHROPIC_API_KEY"
     model:
       model: "Qwen3-14B"
       temperature: 0.3
@@ -47,6 +51,10 @@ agents:
       Monitor handoffs, reassess, and report upward with submit_handoff when complete.
 
   worker:
+    # Optional: override global provider for this role
+    # provider:
+    #   base_url: "http://localhost:11434/v1"
+    #   api_key: ""  # Ollama needs no key
     model:
       model: "Qwen2.5-Coder-14B-Instruct"
       temperature: 0.2

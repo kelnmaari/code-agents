@@ -31,7 +31,7 @@ func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 	subplanner := agent.NewWithConfig(
 		subplannerID,
 		agent.RoleSubplanner,
-		o.client,
+		o.clientForRole(o.cfg.Agents.Subplanner.Provider),
 		o.cfg.Agents.Subplanner.Model,
 		o.cfg.Agents.Subplanner.SystemPrompt,
 		subTools,

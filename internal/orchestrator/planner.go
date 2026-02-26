@@ -33,7 +33,7 @@ func (o *Orchestrator) initPlanner() *agent.Agent {
 	return agent.NewWithConfig(
 		plannerID,
 		agent.RolePlanner,
-		o.client,
+		o.clientForRole(o.cfg.Agents.Planner.Provider),
 		o.cfg.Agents.Planner.Model,
 		o.cfg.Agents.Planner.SystemPrompt,
 		plannerTools,
