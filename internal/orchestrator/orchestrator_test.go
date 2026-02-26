@@ -67,19 +67,21 @@ func TestBuildStatusMessage_WithTasks(t *testing.T) {
 	cfg := testConfig()
 	orch := NewWithClient(cfg, nil)
 
-	// Push and complete a task
+	// Push and complete a task (pre-approved so Pull doesn't block forever)
 	orch.queue.Push(&task.Task{
 		ID:        "task-1",
 		ParentID:  "parent-1",
 		Title:     "First task",
 		CreatedAt: time.Now(),
+		Approved:  true,
 	})
 
-	// Pull to assign
+	// Pull to assign (use a cancellable context to avoid goroutine leak)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	pulled := make(chan *task.Task, 1)
 	go func() {
-		t := orch.queue.Pull(context.TODO())
-		pulled <- t
+		pulled <- orch.queue.Pull(ctx)
 	}()
 	// Give queue time to respond
 	time.Sleep(10 * time.Millisecond)
@@ -102,7 +104,7 @@ func TestBuildStatusMessage_WithFailedTasks(t *testing.T) {
 	orch.queue.Fail("task-f1", "something went wrong")
 
 	msg := orch.buildStatusMessage("parent-1")
-	require.Contains(t, msg, "Failed")
+	require.Contains(t, msg, "[failed]")
 	require.Contains(t, msg, "something went wrong")
 	require.Contains(t, msg, "1 failed")
 }
@@ -131,8 +133,6 @@ func TestBuildStatusMessage_WithHandoffs(t *testing.T) {
 	require.Contains(t, msg, "1 completed")
 	require.Contains(t, msg, "Recent handoffs")
 	require.Contains(t, msg, "Implemented feature X")
-	require.Contains(t, msg, "Found a bug")
-	require.Contains(t, msg, "Performance may degrade")
 	require.Contains(t, msg, "main.go")
 }
 

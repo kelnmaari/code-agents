@@ -91,7 +91,7 @@ func TestReadFile_Success(t *testing.T) {
 	tool := NewReadFile(workDir)
 	result, err := tool.Execute(context.Background(), `{"path": "hello.txt"}`)
 	require.NoError(t, err)
-	require.Equal(t, "world", result)
+	require.Equal(t, "   1: world\n", result)
 }
 
 func TestReadFile_NotFound(t *testing.T) {
@@ -202,6 +202,9 @@ func TestCreateTask_Execute(t *testing.T) {
 
 	require.Equal(t, 1, q.PendingCount())
 
+	// Approve tasks so Pull() doesn't block (tasks from create_task are not auto-approved)
+	q.ApproveTasks()
+
 	// Pull and verify
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -221,6 +224,9 @@ func TestCreateTask_Subplan(t *testing.T) {
 	_, err := tool.Execute(context.Background(), `{"title":"Sub","description":"Sub work","is_subplan":true}`)
 	require.NoError(t, err)
 
+	// Approve tasks so Pull() doesn't block
+	q.ApproveTasks()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pulled := q.Pull(ctx)
@@ -232,8 +238,8 @@ func TestCreateTask_Subplan(t *testing.T) {
 
 func TestCompleteTask_Execute(t *testing.T) {
 	q := task.NewQueue()
-	// Push a dummy task
-	q.Push(&task.Task{ID: "task-1", Title: "Test"})
+	// Push a dummy task (pre-approved so Pull() doesn't block)
+	q.Push(&task.Task{ID: "task-1", Title: "Test", Approved: true})
 	// Pull to assign
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -255,7 +261,7 @@ func TestCompleteTask_Execute(t *testing.T) {
 
 func TestSubmitHandoff_Execute(t *testing.T) {
 	q := task.NewQueue()
-	q.Push(&task.Task{ID: "task-2", Title: "Sub"})
+	q.Push(&task.Task{ID: "task-2", Title: "Sub", Approved: true})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	q.Pull(ctx)

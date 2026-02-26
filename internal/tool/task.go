@@ -65,6 +65,11 @@ func (t *CreateTaskTool) Parameters() interface{} {
 				"type":        "boolean",
 				"description": "If true, task will be handled by a subplanner instead of a worker",
 			},
+			"depends_on": map[string]interface{}{
+				"type":        "array",
+				"items":       map[string]interface{}{"type": "string"},
+				"description": "List of task IDs that must be completed before this task can start",
+			},
 		},
 		"required": []string{"title", "description"},
 	}
@@ -83,6 +88,7 @@ func (t *CreateTaskTool) Execute(_ context.Context, args string) (string, error)
 		Constraints []string `json:"constraints"`
 		Priority    string   `json:"priority"`
 		IsSubplan   bool     `json:"is_subplan"`
+		DependsOn   []string `json:"depends_on"`
 	}
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
 		return fmt.Sprintf("Error parsing arguments: %s", err), nil
@@ -117,12 +123,17 @@ func (t *CreateTaskTool) Execute(_ context.Context, args string) (string, error)
 		CreatedAt:   time.Now(),
 		IsSubplan:   params.IsSubplan,
 		Depth:       t.depth + 1,
+		DependsOn:   params.DependsOn,
 	}
 
 	t.queue.Push(newTask)
 	t.tasksCreated++
 
-	msg := fmt.Sprintf("Task created (%d/%d): %s - %s. NOTE: This task is queued for WORKERS. Stop and yield.", t.tasksCreated, t.maxPerTurn, id, params.Title)
+	depsNote := ""
+	if len(params.DependsOn) > 0 {
+		depsNote = fmt.Sprintf(" (blocked until deps complete: %v)", params.DependsOn)
+	}
+	msg := fmt.Sprintf("Task created (%d/%d): ID=%s Title=%s%s. NOTE: This task is queued for WORKERS. Stop and yield.", t.tasksCreated, t.maxPerTurn, id, params.Title, depsNote)
 	return msg, nil
 }
 
