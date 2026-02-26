@@ -8,10 +8,10 @@ import (
 
 var (
 	// File is the verbose logger — writes everything to the log file.
-	File *log.Logger
+	File = log.New(io.Discard, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 
 	// Console is the brief logger — writes key events to stderr.
-	Console *log.Logger
+	Console = log.New(os.Stderr, "", log.Ltime)
 )
 
 // Init sets up both loggers. Call once from main.

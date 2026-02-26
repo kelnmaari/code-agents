@@ -323,8 +323,8 @@ func (o *Orchestrator) buildStatusMessage(parentID string) string {
 		sb.WriteString("\nYour Tasks:\n")
 		for _, t := range tasks {
 			sb.WriteString(fmt.Sprintf("- [%s] %s (ID: %s)\n", t.Status, t.Title, t.ID))
-			if t.Status == "failed" {
-				sb.WriteString(fmt.Sprintf("  Error: %s\n", t.FailReason))
+			if t.Status == task.StatusFailed {
+				sb.WriteString(fmt.Sprintf("  Failed: %s\n", t.FailReason))
 			}
 		}
 	}
@@ -337,6 +337,16 @@ func (o *Orchestrator) buildStatusMessage(parentID string) string {
 			sb.WriteString("---\n")
 			sb.WriteString(fmt.Sprintf("Task: %s\n", h.TaskID))
 			sb.WriteString(fmt.Sprintf("Summary: %s\n", h.Summary))
+			if len(h.Findings) > 0 {
+				for _, f := range h.Findings {
+					sb.WriteString(fmt.Sprintf("Finding: %s\n", f))
+				}
+			}
+			if len(h.Concerns) > 0 {
+				for _, c := range h.Concerns {
+					sb.WriteString(fmt.Sprintf("Concern: %s\n", c))
+				}
+			}
 			if len(h.FilesChanged) > 0 {
 				sb.WriteString(fmt.Sprintf("Files changed: %s\n", strings.Join(h.FilesChanged, ", ")))
 			}
