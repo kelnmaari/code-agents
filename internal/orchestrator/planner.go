@@ -30,13 +30,14 @@ func (o *Orchestrator) initPlanner() *agent.Agent {
 	r := runner.NewRealRunner(o.cfg.Tools.WorkDir)
 	plannerTools.Register(tool.NewShellExec(r, o.cfg.Tools.AllowedShell))
 
-	return agent.New(
+	return agent.NewWithConfig(
 		plannerID,
 		agent.RolePlanner,
 		o.client,
 		o.cfg.Agents.Planner.Model,
 		o.cfg.Agents.Planner.SystemPrompt,
 		plannerTools,
+		o.cfg.Agents.Planner.MaxHistoryMessages,
 	)
 }
 

@@ -34,8 +34,9 @@ type AgentsConfig struct {
 
 // AgentConfig defines model and system prompt for an agent role.
 type AgentConfig struct {
-	Model        ModelConfig `yaml:"model"`
-	SystemPrompt string      `yaml:"system_prompt"`
+	Model               ModelConfig `yaml:"model"`
+	SystemPrompt        string      `yaml:"system_prompt"`
+	MaxHistoryMessages  int         `yaml:"max_history_messages"`
 }
 
 // ModelConfig specifies LLM model parameters.
@@ -162,6 +163,15 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Version == 0 {
 		cfg.Version = 1
+	}
+	if cfg.Agents.Planner.MaxHistoryMessages == 0 {
+		cfg.Agents.Planner.MaxHistoryMessages = 50
+	}
+	if cfg.Agents.Subplanner.MaxHistoryMessages == 0 {
+		cfg.Agents.Subplanner.MaxHistoryMessages = 50
+	}
+	if cfg.Agents.Worker.MaxHistoryMessages == 0 {
+		cfg.Agents.Worker.MaxHistoryMessages = 50
 	}
 	// GitEnabled defaults to true (Go zero value is false, so we check version)
 	// Only set default if the entire tools section was not provided

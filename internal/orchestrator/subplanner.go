@@ -28,13 +28,14 @@ func (o *Orchestrator) runSubplanner(ctx context.Context, t *task.Task) error {
 	subTools.Register(tool.NewCreateTask(o.queue, subplannerID, t.Depth))
 	subTools.Register(tool.NewSubmitHandoff(o.queue, subplannerID))
 
-	subplanner := agent.New(
+	subplanner := agent.NewWithConfig(
 		subplannerID,
 		agent.RoleSubplanner,
 		o.client,
 		o.cfg.Agents.Subplanner.Model,
 		o.cfg.Agents.Subplanner.SystemPrompt,
 		subTools,
+		o.cfg.Agents.Subplanner.MaxHistoryMessages,
 	)
 
 	// Inject task scope

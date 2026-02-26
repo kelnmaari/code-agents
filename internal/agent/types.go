@@ -25,4 +25,6 @@ type RunResult struct {
 	ToolCallsCount int
 	// Usage is the cumulative token consumption for this Step.
 	Usage llm.Usage
+	// ContextUtilization is the ratio of current message count to maxHistoryMessages (0.0–1.0+).
+	ContextUtilization float64
 }
