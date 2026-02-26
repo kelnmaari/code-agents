@@ -11,12 +11,13 @@ import (
 
 // Config is the root configuration structure.
 type Config struct {
-	Version  int            `yaml:"version"`
-	Provider ProviderConfig `yaml:"provider"`
-	Agents   AgentsConfig   `yaml:"agents"`
-	Loop     LoopConfig     `yaml:"loop"`
-	Tools    ToolsConfig    `yaml:"tools"`
-	Input    InputConfig    `yaml:"input"`
+	Version       int                 `yaml:"version"`
+	Provider      ProviderConfig      `yaml:"provider"`
+	Agents        AgentsConfig        `yaml:"agents"`
+	Loop          LoopConfig          `yaml:"loop"`
+	Tools         ToolsConfig         `yaml:"tools"`
+	Input         InputConfig         `yaml:"input"`
+	Observability ObservabilityConfig `yaml:"observability"`
 }
 
 // ProviderConfig defines the OpenAI-compatible LLM endpoint.
@@ -67,6 +68,12 @@ type ToolsConfig struct {
 // InputConfig holds the user's input prompt.
 type InputConfig struct {
 	Prompt string `yaml:"prompt"`
+}
+
+// ObservabilityConfig controls the built-in metrics HTTP server.
+// Port == 0 (the default) means the server is disabled.
+type ObservabilityConfig struct {
+	Port int `yaml:"port"`
 }
 
 // Load reads and validates a YAML configuration file.

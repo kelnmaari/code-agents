@@ -16,6 +16,7 @@ import (
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/llm"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/metrics"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/task"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
 )
@@ -30,25 +31,47 @@ type Orchestrator struct {
 
 	usageMu sync.Mutex
 	usage   llm.Usage
+
+	metrics *metrics.Collector // observability metrics collector (always non-nil)
 }
 
 // New creates an orchestrator from the given configuration.
 func New(cfg *config.Config) *Orchestrator {
 	client := llm.NewClient(cfg.Provider.BaseURL, cfg.Provider.APIKey)
-	return &Orchestrator{
-		cfg:    cfg,
-		client: client,
-		queue:  task.NewQueue(),
+	o := &Orchestrator{
+		cfg:     cfg,
+		client:  client,
+		queue:   task.NewQueue(),
+		metrics: metrics.New(),
 	}
+	o.startMetricsServer()
+	return o
 }
 
 // NewWithClient creates an orchestrator with a custom LLM client (for testing).
 func NewWithClient(cfg *config.Config, client llm.Completer) *Orchestrator {
 	return &Orchestrator{
-		cfg:    cfg,
-		client: client,
-		queue:  task.NewQueue(),
+		cfg:     cfg,
+		client:  client,
+		queue:   task.NewQueue(),
+		metrics: metrics.New(),
 	}
+}
+
+// startMetricsServer starts the observability HTTP server if configured.
+func (o *Orchestrator) startMetricsServer() {
+	port := o.cfg.Observability.Port
+	if port == 0 {
+		return
+	}
+	srv := metrics.NewServer(o.metrics, port)
+	addr, err := srv.Start()
+	if err != nil {
+		logging.Console.Printf("[observability] failed to start metrics server: %v", err)
+		return
+	}
+	logging.Console.Printf("[observability] metrics server listening on http://%s  (dashboard: http://%s/)", addr, addr)
+	logging.File.Printf("[observability] metrics server started on %s", addr)
 }
 
 // Run is the main entry point. It runs in 3 phases:
@@ -58,6 +81,10 @@ func NewWithClient(cfg *config.Config, client llm.Completer) *Orchestrator {
 func (o *Orchestrator) Run(ctx context.Context, prompt string) error {
 	ctx, cancel := context.WithTimeout(ctx, o.cfg.Loop.TimeoutDuration)
 	defer cancel()
+
+	// Background goroutine: keep task-count metrics in sync with the queue.
+	o.metrics.SetWorkers(0, int64(o.cfg.Loop.MaxWorkers))
+	go o.syncMetricsLoop(ctx)
 
 	// Initial prompt injection (only once)
 	o.ensurePlanner()
@@ -216,6 +243,8 @@ func (o *Orchestrator) reportUsage(u llm.Usage) {
 	usage := o.usage
 	o.usageMu.Unlock()
 
+	o.metrics.AddTokens(int64(u.PromptTokens), int64(u.CompletionTokens))
+
 	logging.Console.Printf("[usage] tokens: %d (prompt: %d, completion: %d)", usage.TotalTokens, usage.PromptTokens, usage.CompletionTokens)
 }
 
@@ -307,6 +336,27 @@ func truncatePlan(s string, maxLen int) string {
 		return s[:maxLen-3] + "..."
 	}
 	return s
+}
+
+// syncMetricsLoop periodically copies queue counters to the metrics collector.
+// It runs until ctx is cancelled.
+func (o *Orchestrator) syncMetricsLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			o.metrics.SetTasksPending(int64(o.queue.PendingCount()))
+			o.metrics.SetTasksCompleted(int64(o.queue.CompletedCount()))
+			o.metrics.SetTasksFailed(int64(o.queue.FailedCount()))
+			o.metrics.SetWorkers(
+				int64(o.queue.AssignedCount()),
+				int64(o.cfg.Loop.MaxWorkers),
+			)
+		}
+	}
 }
 
 // buildStatusMessage creates a status update for the planner.

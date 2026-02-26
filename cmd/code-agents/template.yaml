@@ -85,3 +85,11 @@ tools:
 # Input
 input:
   prompt: "Describe your task here or use file:./task.md"
+
+# Observability (optional)
+# Set port > 0 to enable the metrics HTTP server.
+# Dashboard: http://localhost:<port>/
+# Prometheus: http://localhost:<port>/metrics
+# JSON status: http://localhost:<port>/status
+observability:
+  port: 0   # 0 = disabled

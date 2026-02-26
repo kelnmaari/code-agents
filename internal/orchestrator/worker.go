@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 
@@ -54,6 +55,9 @@ func (o *Orchestrator) runWorker(ctx context.Context, workerID string) {
 
 // executeWorkerTask creates a worker agent and executes a single task.
 func (o *Orchestrator) executeWorkerTask(ctx context.Context, t *task.Task) error {
+	// Record how long this task waited in the queue before being picked up.
+	o.metrics.RecordQueueWait(time.Since(t.CreatedAt))
+
 	agentID, _ := gonanoid.New()
 
 	// Build worker tool registry
