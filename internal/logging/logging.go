@@ -8,12 +8,10 @@ import (
 
 var (
 	// File is the verbose logger — writes everything to the log file.
-	// Initialized to a discard logger so tests that skip Init() don't panic.
-	File = log.New(io.Discard, "", 0)
+	File = log.New(io.Discard, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 
 	// Console is the brief logger — writes key events to stderr.
-	// Initialized to a discard logger so tests that skip Init() don't panic.
-	Console = log.New(io.Discard, "", 0)
+	Console = log.New(os.Stderr, "", log.Ltime)
 )
 
 func init() {

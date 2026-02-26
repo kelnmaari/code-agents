@@ -14,6 +14,7 @@ func makeTask(id string, priority TaskPriority) *Task {
 		ID:        id,
 		Title:     "Task " + id,
 		Priority:  priority,
+		Approved:  true,
 		CreatedAt: time.Now(),
 		Approved:  true, // pre-approve so Pull() doesn't block in tests
 	}
