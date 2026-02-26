@@ -15,6 +15,7 @@ func makeTask(id string, priority TaskPriority) *Task {
 		Title:     "Task " + id,
 		Priority:  priority,
 		CreatedAt: time.Now(),
+		Approved:  true, // pre-approve so Pull() doesn't block in tests
 	}
 }
 
@@ -206,4 +207,50 @@ func TestQueue_ConcurrentAccess(t *testing.T) {
 		count++
 	}
 	require.Equal(t, numTasks, count)
+}
+
+func TestQueue_DependsOn_BlocksUntilDepCompleted(t *testing.T) {
+	q := NewQueue()
+	ctx := context.Background()
+
+	// t1 has no deps — can be pulled immediately.
+	t1 := makeTask("dep-task", PriorityNormal)
+	q.Push(t1)
+
+	// t2 depends on t1 — must wait until t1 is completed.
+	t2 := makeTask("blocked-task", PriorityNormal)
+	t2.DependsOn = []string{"dep-task"}
+	q.Push(t2)
+
+	// Approve all tasks (required by Pull's approval gate).
+	q.ApproveTasks()
+
+	// First pull: should get t1 (the independent task).
+	first := q.Pull(ctx)
+	require.NotNil(t, first)
+	require.Equal(t, "dep-task", first.ID)
+
+	// t2 is pending but blocked — Pull must not return it.
+	gotCh := make(chan *Task, 1)
+	go func() {
+		gotCh <- q.Pull(ctx)
+	}()
+
+	time.Sleep(60 * time.Millisecond)
+	select {
+	case <-gotCh:
+		t.Fatal("Pull should be blocked while dependency is incomplete")
+	default:
+	}
+
+	// Complete t1 — t2 should now be unblocked.
+	q.Complete("dep-task", &Handoff{TaskID: "dep-task", Summary: "done"})
+
+	select {
+	case got := <-gotCh:
+		require.NotNil(t, got)
+		require.Equal(t, "blocked-task", got.ID)
+	case <-time.After(time.Second):
+		t.Fatal("Pull should have returned after dependency completed")
+	}
 }

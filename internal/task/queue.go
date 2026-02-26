@@ -71,6 +71,11 @@ func (q *Queue) Pull(ctx context.Context) *Task {
 				continue
 			}
 
+			// Dependency check: all tasks listed in DependsOn must be Completed.
+			if !q.areDepsCompletedLocked(t.DependsOn) {
+				continue
+			}
+
 			// If scope is empty, it's always available.
 			// If scope is set, check if it's currently busy.
 			if t.Scope == "" || q.busyScopes[t.Scope] == "" {
@@ -372,6 +377,18 @@ func (q *Queue) ListAll() []*Task {
 		return result[i].CreatedAt.Before(result[j].CreatedAt)
 	})
 	return result
+}
+
+// areDepsCompletedLocked returns true when every task ID in deps has status Completed.
+// Caller MUST hold q.mu.
+func (q *Queue) areDepsCompletedLocked(deps []string) bool {
+	for _, depID := range deps {
+		t, ok := q.tasks[depID]
+		if !ok || t.Status != StatusCompleted {
+			return false
+		}
+	}
+	return true
 }
 
 // HasActiveTaskForScope returns true if there is already a pending or assigned task
