@@ -9,7 +9,7 @@ const (
 	StatusPending   TaskStatus = "pending"
 	StatusAssigned  TaskStatus = "assigned"
 	StatusCompleted TaskStatus = "completed"
-	StatusFailed    TaskStatus = "failed"
+	StatusFailed    TaskStatus = "Failed"
 )
 
 // TaskPriority determines task ordering in the queue.

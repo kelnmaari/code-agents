@@ -94,14 +94,7 @@ func (t *ReadFileTool) Execute(_ context.Context, args string) (string, error) {
 		return fmt.Sprintf("Error reading file: %s", err), nil
 	}
 
-	// Add line numbers for use with replace_lines tool
-	lines := strings.Split(string(data), "\n")
-	var sb strings.Builder
-	for i, line := range lines {
-		sb.WriteString(fmt.Sprintf("%4d: %s\n", i+1, line))
-	}
-
-	return sb.String(), nil
+	return string(data), nil
 }
 
 // --- WriteFileTool ---
