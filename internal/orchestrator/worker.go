@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	gonanoid "github.com/matoous/go-nanoid/v2"
 
@@ -22,14 +23,20 @@ func (o *Orchestrator) runWorker(ctx context.Context, workerID string) {
 			return // context cancelled
 		}
 
+		// Initialise MaxRetries from config if the task has no override.
+		if t.MaxRetries == 0 {
+			t.MaxRetries = o.cfg.Loop.MaxRetries
+		}
+
 		logging.Console.Printf("[worker-%s] ▶ task: %s", workerID[:6], t.Title)
-		logging.File.Printf("[worker-%s] picked up task: %s - %s", workerID[:6], t.ID[:6], t.Title)
+		logging.File.Printf("[worker-%s] picked up task: %s - %s (retry %d/%d)",
+			workerID[:6], t.ID[:6], t.Title, t.RetryCount, t.MaxRetries)
 
 		// Determine if this should be a subplanner
 		if t.IsSubplan && t.Depth < o.cfg.Loop.MaxDepth {
 			if err := o.runSubplanner(ctx, t); err != nil {
 				logging.File.Printf("[worker-%s] subplanner error for task %s: %v", workerID[:6], t.ID[:6], err)
-				o.queue.Fail(t.ID, err.Error())
+				o.retryOrFail(t, err.Error())
 			}
 			continue
 		}
@@ -38,17 +45,45 @@ func (o *Orchestrator) runWorker(ctx context.Context, workerID string) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					logging.File.Printf("[worker-%s] panic: %v", workerID[:6], r)
-					o.queue.Fail(t.ID, fmt.Sprintf("panic: %v", r))
+					panicMsg := fmt.Sprintf("panic: %v", r)
+					logging.File.Printf("[worker-%s] %s", workerID[:6], panicMsg)
+					logging.Console.Printf("[worker-%s] ✗ recovered from panic", workerID[:6])
+					o.retryOrFail(t, panicMsg)
 				}
 			}()
 
 			if err := o.executeWorkerTask(ctx, t); err != nil {
 				logging.Console.Printf("[worker-%s] ✗ error: %v", workerID[:6], err)
 				logging.File.Printf("[worker-%s] task %s error: %v", workerID[:6], t.ID[:6], err)
-				o.queue.Fail(t.ID, err.Error())
+				o.retryOrFail(t, err.Error())
 			}
 		}()
+	}
+}
+
+// retryOrFail checks whether a failed task has retries remaining.
+// If so, it waits for the configured retry delay and re-queues the task as pending.
+// Otherwise it permanently marks the task as failed.
+func (o *Orchestrator) retryOrFail(t *task.Task, reason string) {
+	maxRetries := t.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = o.cfg.Loop.MaxRetries
+	}
+
+	if t.RetryCount < maxRetries {
+		nextAttempt := t.RetryCount + 1
+		logging.Console.Printf("[orchestrator] scheduling retry %d/%d for task %s (delay: %s)",
+			nextAttempt, maxRetries, t.ID[:6], o.cfg.Loop.RetryDelay)
+		logging.File.Printf("[orchestrator] retry %d/%d for task %s — reason: %s",
+			nextAttempt, maxRetries, t.ID[:6], reason)
+		time.Sleep(o.cfg.Loop.RetryDelayDuration)
+		o.queue.RetryTask(t.ID)
+	} else {
+		logging.Console.Printf("[orchestrator] task %s permanently failed after %d retries",
+			t.ID[:6], t.RetryCount)
+		logging.File.Printf("[orchestrator] task %s permanently failed after %d retries: %s",
+			t.ID[:6], t.RetryCount, reason)
+		o.queue.Fail(t.ID, reason)
 	}
 }
 

@@ -182,6 +182,31 @@ func (q *Queue) Fail(taskID string, reason string) {
 	q.broadcast()
 }
 
+// RetryTask resets a failed (or assigned) task back to pending for retry.
+// It increments RetryCount and re-inserts the task into the pending queue.
+// The caller is responsible for checking MaxRetries before calling this.
+func (q *Queue) RetryTask(taskID string) {
+	q.mu.Lock()
+	if t, ok := q.tasks[taskID]; ok {
+		// Release scope lock if held
+		if t.Scope != "" {
+			delete(q.busyScopes, t.Scope)
+		}
+		t.Status = StatusPending
+		t.RetryCount++
+		t.FailReason = ""
+		q.pending = append(q.pending, t)
+		sort.SliceStable(q.pending, func(i, j int) bool {
+			if q.pending[i].Priority != q.pending[j].Priority {
+				return q.pending[i].Priority > q.pending[j].Priority
+			}
+			return q.pending[i].CreatedAt.Before(q.pending[j].CreatedAt)
+		})
+		q.broadcast()
+	}
+	q.mu.Unlock()
+}
+
 // broadcast wakes up all waiting Pull calls by closing and recreating the notify channel.
 // Caller MUST hold q.mu.
 func (q *Queue) broadcast() {

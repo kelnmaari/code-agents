@@ -47,14 +47,17 @@ type ModelConfig struct {
 
 // LoopConfig controls orchestration loop parameters.
 type LoopConfig struct {
-	MaxDepth          int           `yaml:"max_depth"`
-	MaxWorkers        int           `yaml:"max_workers"`
-	MaxSteps          int           `yaml:"max_steps"`
-	Timeout           string        `yaml:"timeout"`
-	StepDelay         string        `yaml:"step_delay"`
-	AutoApprove       bool          `yaml:"auto_approve"`
-	TimeoutDuration   time.Duration `yaml:"-"`
-	StepDelayDuration time.Duration `yaml:"-"`
+	MaxDepth            int           `yaml:"max_depth"`
+	MaxWorkers          int           `yaml:"max_workers"`
+	MaxSteps            int           `yaml:"max_steps"`
+	MaxRetries          int           `yaml:"max_retries"`
+	Timeout             string        `yaml:"timeout"`
+	StepDelay           string        `yaml:"step_delay"`
+	RetryDelay          string        `yaml:"retry_delay"`
+	AutoApprove         bool          `yaml:"auto_approve"`
+	TimeoutDuration     time.Duration `yaml:"-"`
+	StepDelayDuration   time.Duration `yaml:"-"`
+	RetryDelayDuration  time.Duration `yaml:"-"`
 }
 
 // ToolsConfig controls which tools are available and their settings.
@@ -106,6 +109,10 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse step_delay duration %q: %w", cfg.Loop.StepDelay, err)
 	}
+	cfg.Loop.RetryDelayDuration, err = time.ParseDuration(cfg.Loop.RetryDelay)
+	if err != nil {
+		return nil, fmt.Errorf("parse retry_delay duration %q: %w", cfg.Loop.RetryDelay, err)
+	}
 
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
@@ -143,6 +150,12 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Loop.StepDelay == "" {
 		cfg.Loop.StepDelay = "2s"
+	}
+	if cfg.Loop.RetryDelay == "" {
+		cfg.Loop.RetryDelay = "5s"
+	}
+	if cfg.Loop.MaxRetries == 0 {
+		cfg.Loop.MaxRetries = 2
 	}
 	if cfg.Tools.WorkDir == "" {
 		cfg.Tools.WorkDir = "."
