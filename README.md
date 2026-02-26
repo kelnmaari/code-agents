@@ -174,8 +174,12 @@ input:
 | `provider.api_key` | API ключ (поддерживает `env:VAR_NAME`) | обязательный |
 | `loop.max_workers` | Параллельных workers | 4 |
 | `loop.max_steps` | Макс. итераций planner loop | 30 |
+| `loop.max_retries` | Макс. повторных попыток при ошибках агента | 2 |
 | `loop.timeout` | Глобальный таймаут (Go duration) | 30m |
+| `loop.step_delay` | Задержка между итерациями planner | 2s |
+| `loop.retry_delay` | Задержка перед повторной попыткой | 5s |
 | `loop.max_depth` | Глубина рекурсии subplanners | 3 |
+| `loop.auto_approve` | Автоматически принимать все задачи | `false` |
 | `tools.work_dir` | Рабочая директория | `.` |
 | `tools.allowed_shell` | Whitelist shell-команд (пустой = все) | `[]` |
 | `tools.git_enabled` | Включить git tools | `true` |
@@ -289,6 +293,8 @@ code-agents/
 │   ├── task/               # Task, Handoff, thread-safe Queue
 │   ├── orchestrator/       # координация planner + worker pool
 │   ├── runner/             # кросс-платформенный shell (PTY/pipes)
+│   ├── runlog/             # метрики и логи запусков (JSON, сравнение)
+│   ├── logging/            # инициализация логгеров (file + console)
 │   └── version/            # build-time версия
 ├── prompts/                # примеры промптов для задач
 ├── docs/                   # документация
@@ -307,9 +313,23 @@ code-agents/
 | [configuration.md](docs/configuration.md) | Полная схема конфигурации с примерами |
 | [tools.md](docs/tools.md) | Описание всех инструментов агентов |
 | [models.md](docs/models.md) | Подбор GGUF моделей для локального инференса |
+| [models-vllm.md](docs/models-vllm.md) | Запуск моделей через vLLM |
 | [interfaces.md](docs/interfaces.md) | Ключевые интерфейсы и типы Go |
 | [orchestration-loop.md](docs/orchestration-loop.md) | Пошаговое описание оркестрации |
 | [project-structure.md](docs/project-structure.md) | Структура проекта и назначение пакетов |
+| [prompt-measurement.md](docs/prompt-measurement.md) | Методология измерения качества промптов |
+
+---
+
+## Разработка и тесты
+
+```bash
+# Запуск тестов
+go test -race -timeout 120s ./...
+
+# Проверка кода
+go vet ./...
+```
 
 ---
 
