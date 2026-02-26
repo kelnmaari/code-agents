@@ -38,10 +38,10 @@ func (q *Queue) Push(t *Task) {
 	q.mu.Lock()
 	t.Status = StatusPending
 
-	// Auto-approve if the parent agent is already "trusted" (approved)
-	if q.approvedAgents[t.ParentID] {
-		t.Approved = true
-	}
+	// Tasks are approved by default. They may be unapproved later
+	// (e.g. by resetPendingByScopeLocked) if their context becomes stale.
+	// RegisterApprovedAgent is used to track trusted planners for informational purposes.
+	t.Approved = true
 
 	q.tasks[t.ID] = t
 	q.pending = append(q.pending, t)
@@ -68,6 +68,11 @@ func (q *Queue) Pull(ctx context.Context) *Task {
 		for i, t := range q.pending {
 			// A task can only be pulled if it is APPROVED.
 			if !t.Approved {
+				continue
+			}
+
+			// Dependency check: all tasks listed in DependsOn must be Completed.
+			if !q.areDepsCompletedLocked(t.DependsOn) {
 				continue
 			}
 
@@ -397,6 +402,18 @@ func (q *Queue) ListAll() []*Task {
 		return result[i].CreatedAt.Before(result[j].CreatedAt)
 	})
 	return result
+}
+
+// areDepsCompletedLocked returns true when every task ID in deps has status Completed.
+// Caller MUST hold q.mu.
+func (q *Queue) areDepsCompletedLocked(deps []string) bool {
+	for _, depID := range deps {
+		t, ok := q.tasks[depID]
+		if !ok || t.Status != StatusCompleted {
+			return false
+		}
+	}
+	return true
 }
 
 // HasActiveTaskForScope returns true if there is already a pending or assigned task

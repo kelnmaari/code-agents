@@ -203,6 +203,9 @@ func TestCreateTask_Execute(t *testing.T) {
 
 	require.Equal(t, 1, q.PendingCount())
 
+	// Approve tasks so Pull() doesn't block (tasks from create_task are not auto-approved)
+	q.ApproveTasks()
+
 	// Pull and verify
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -222,6 +225,9 @@ func TestCreateTask_Subplan(t *testing.T) {
 
 	_, err := tool.Execute(context.Background(), `{"title":"Sub","description":"Sub work","is_subplan":true}`)
 	require.NoError(t, err)
+
+	// Approve tasks so Pull() doesn't block
+	q.ApproveTasks()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
