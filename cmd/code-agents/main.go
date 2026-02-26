@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/alexflint/go-arg"
@@ -13,6 +14,7 @@ import (
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/config"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/logging"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/orchestrator"
+	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/runlog"
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/version"
 )
 
@@ -21,9 +23,11 @@ var templateContent []byte
 
 // Args defines CLI arguments.
 type Args struct {
-	Config string   `arg:"-c,--config" default:"code-agents.yaml" help:"path to configuration file"`
-	Init   bool     `arg:"--init" help:"generate a new configuration file"`
-	Prompt []string `arg:"positional" help:"prompt text (overrides config prompt)"`
+	Config  string   `arg:"-c,--config" default:"code-agents.yaml" help:"path to configuration file"`
+	Init    bool     `arg:"--init" help:"generate a new configuration file"`
+	Profile string   `arg:"--profile" help:"named prompt profile to use (loads profiles/<name>.yaml)"`
+	RunsDir string   `arg:"--runs-dir" default:"runs" help:"directory to save run logs"`
+	Prompt  []string `arg:"positional" help:"prompt text (overrides config prompt)"`
 }
 
 func (Args) Version() string {
@@ -35,6 +39,12 @@ func (Args) Description() string {
 }
 
 func main() {
+	// Handle compare subcommand before go-arg to avoid positional conflicts.
+	if len(os.Args) > 1 && os.Args[1] == "compare" {
+		runCompare(os.Args[2:])
+		return
+	}
+
 	var args Args
 	arg.MustParse(&args)
 
@@ -54,8 +64,15 @@ func main() {
 		return
 	}
 
+	// Resolve config path: --profile overrides --config.
+	cfgPath := args.Config
+	if args.Profile != "" {
+		cfgPath = filepath.Join("profiles", args.Profile+".yaml")
+		logging.Console.Printf("Using profile: %s (%s)", args.Profile, cfgPath)
+	}
+
 	// Load configuration
-	cfg, err := config.Load(args.Config)
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Fatalf("Error loading config: %v", err)
 	}
@@ -83,14 +100,45 @@ func main() {
 	logging.File.Printf("Starting code-agents (workers: %d, max_steps: %d, timeout: %s)",
 		cfg.Loop.MaxWorkers, cfg.Loop.MaxSteps, cfg.Loop.Timeout)
 
+	// Start run log.
+	rl := runlog.New(args.Profile, prompt)
+
 	// Create and run orchestrator
 	orch := orchestrator.New(cfg)
-	if err := orch.Run(context.Background(), prompt); err != nil {
-		logging.Console.Fatalf("Error: %v", err)
+	runErr := orch.Run(context.Background(), prompt)
+
+	// Capture results and save run log regardless of success/failure.
+	res := orch.Results()
+	success := runErr == nil
+	rl.Finish(success, runErr,
+		res.Usage.PromptTokens, res.Usage.CompletionTokens, res.Usage.TotalTokens,
+		res.FailedTasks, res.CompletedTasks, res.PlannerIterations,
+	)
+	if logPath, saveErr := rl.Save(args.RunsDir); saveErr != nil {
+		logging.Console.Printf("Warning: could not save run log: %v", saveErr)
+	} else {
+		logging.Console.Printf("Run log saved: %s", logPath)
+	}
+
+	if runErr != nil {
+		logging.Console.Fatalf("Error: %v", runErr)
 	}
 
 	logging.Console.Println("Code-agents completed successfully.")
+}
 
+// runCompare implements the `code-agents compare <run1.json> <run2.json>` subcommand.
+func runCompare(args []string) {
+	if len(args) != 2 {
+		fmt.Fprintf(os.Stderr, "Usage: code-agents compare <run1.json> <run2.json>\n")
+		os.Exit(1)
+	}
+	cr, err := runlog.Compare(args[0], args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	cr.Print(os.Stdout)
 }
 
 func generateTemplate(path string) error {

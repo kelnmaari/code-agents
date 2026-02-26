@@ -20,6 +20,14 @@ import (
 	"gitlab.alexue4.dev/kelnmaari/code-agent/internal/tool"
 )
 
+// RunResult holds the outcome metrics of a completed orchestrator run.
+type RunResult struct {
+	PlannerIterations int
+	FailedTasks       int
+	CompletedTasks    int
+	Usage             llm.Usage
+}
+
 // Orchestrator coordinates the planner, workers, and subplanners.
 type Orchestrator struct {
 	cfg             *config.Config
@@ -28,8 +36,9 @@ type Orchestrator struct {
 	planner         *agent.Agent         // Persistent planner instance
 	plannerTaskTool *tool.CreateTaskTool // Reference for counter reset
 
-	usageMu sync.Mutex
-	usage   llm.Usage
+	usageMu      sync.Mutex
+	usage        llm.Usage
+	plannerSteps int
 }
 
 // New creates an orchestrator from the given configuration.
@@ -76,6 +85,7 @@ func (o *Orchestrator) Run(ctx context.Context, prompt string) error {
 		default:
 		}
 
+		o.plannerSteps = step
 		logging.Console.Printf("[orchestrator] phase: Plan & Approve (Turn %d/%d)", step, o.cfg.Loop.MaxSteps)
 		// Phase 1 + 2: Plan and approve
 		done, err := o.planAndApprove(ctx, step)
@@ -205,6 +215,19 @@ func (o *Orchestrator) executeWorkers(ctx context.Context) error {
 			// Periodic verbose status
 			logging.File.Printf("[orchestrator] waiting for tasks (executable: %d, busy: %d, total pending: %d)", executable, assigned, o.queue.PendingCount())
 		}
+	}
+}
+
+// Results returns the outcome metrics after Run() completes.
+func (o *Orchestrator) Results() RunResult {
+	o.usageMu.Lock()
+	usage := o.usage
+	o.usageMu.Unlock()
+	return RunResult{
+		PlannerIterations: o.plannerSteps,
+		FailedTasks:       o.queue.FailedCount(),
+		CompletedTasks:    o.queue.CompletedCount(),
+		Usage:             usage,
 	}
 }
 
