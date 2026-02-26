@@ -210,5 +210,8 @@ func validate(cfg *Config) error {
 	if cfg.Loop.MaxSteps < 1 {
 		return fmt.Errorf("loop.max_steps must be >= 1")
 	}
+	if cfg.Input.Prompt == "" {
+		return fmt.Errorf("input.prompt is required")
+	}
 	return nil
 }
