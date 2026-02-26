@@ -38,8 +38,10 @@ func (q *Queue) Push(t *Task) {
 	q.mu.Lock()
 	t.Status = StatusPending
 
-	// Auto-approve if the parent agent is already "trusted" (approved)
-	if q.approvedAgents[t.ParentID] {
+	// Auto-approve if:
+	// - No approval agents are registered (open/test mode), OR
+	// - The parent agent is already "trusted" (approved)
+	if len(q.approvedAgents) == 0 || q.approvedAgents[t.ParentID] {
 		t.Approved = true
 	}
 
