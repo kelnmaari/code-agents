@@ -11,10 +11,9 @@ variables:
 test:
   stage: test
   image: golang:1.25.5
-  allow_failure: true
   script:
     - go vet ./...
-    - go test -race -v ./...
+    - go test -race -timeout 120s -v ./...
 
 # ─── Build ────────────────────────────────────────────────────────────
 build:
