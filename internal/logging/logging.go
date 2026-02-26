@@ -14,6 +14,12 @@ var (
 	Console *log.Logger
 )
 
+func init() {
+	// Default to discard so callers don't need nil checks before Init is called.
+	File = log.New(io.Discard, "", 0)
+	Console = log.New(io.Discard, "", 0)
+}
+
 // Init sets up both loggers. Call once from main.
 func Init(logFile io.Writer) {
 	File = log.New(logFile, "", log.Ldate|log.Ltime|log.Lmicroseconds)
