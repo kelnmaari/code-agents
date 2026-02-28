@@ -32,6 +32,7 @@ agents:
 
   # Subplanner -- тактическая декомпозиция узкого скоупа
   subplanner:
+    max_history_messages: 50     # максимум сообщений в истории агента
     model:
       model: "qwen3-235b-a22b"
       temperature: 0.3
@@ -55,8 +56,11 @@ loop:
   max_depth: 3             # максимальная глубина рекурсии subplanners
   max_workers: 4           # количество параллельных worker goroutines
   max_steps: 30            # максимум итераций planner loop
+  max_retries: 2           # повторных попыток при ошибке агента
   timeout: "30m"           # глобальный таймаут (Go duration format)
   step_delay: "2s"         # пауза между итерациями planner loop
+  retry_delay: "5s"        # задержка перед повторной попыткой
+  auto_approve: false      # автоматически принимать все задачи
 
 # Настройки инструментов
 tools:
@@ -120,6 +124,38 @@ api_key: "env:CODEAGENTS_API_KEY"
 | `max_tokens` | int | 4096 | Максимум токенов в ответе |
 
 Разные модели для разных ролей -- ключевое преимущество. Planner требует сильной модели для стратегического мышления. Worker может использовать более быструю/дешевую модель для конкретных задач.
+
+### `max_history_messages`
+
+Максимальное количество сообщений в истории диалога агента. По умолчанию `50`. При достижении лимита старые сообщения обрезаются, чтобы контекст не переполнял окно модели.
+
+```yaml
+agents:
+  planner:
+    max_history_messages: 50   # по умолчанию
+  worker:
+    max_history_messages: 30   # сократить для быстрых worker-задач
+```
+
+### `provider` (per-agent override)
+
+Каждый агент может использовать **свой** LLM-провайдер независимо от глобального `provider`. Это позволяет запускать разные модели с разных серверов или провайдеров:
+
+```yaml
+provider:
+  base_url: "http://localhost:8080/v1"   # глобальный (для planner)
+  api_key: "env:LLM_API_KEY"
+
+agents:
+  worker:
+    provider:                            # переопределение только для worker
+      base_url: "http://localhost:8082/v1"
+      api_key: "env:WORKER_API_KEY"
+    model:
+      model: "qwen2.5-coder-14b"
+```
+
+Если `agents.*.provider` не задан, используется глобальный `provider`.
 
 ### `system_prompt`
 
@@ -202,6 +238,9 @@ CONSTRAINTS:
 | `max_steps` | int | 30 | Максимум итераций root planner loop. Защита от бесконечной работы. |
 | `timeout` | string | "30m" | Глобальный таймаут в формате Go duration. По истечении -- cancel всех goroutines. |
 | `step_delay` | string | "2s" | Пауза между итерациями planner loop. Дает время workers завершить задачи. |
+| `max_retries` | int | 2 | Макс. повторных попыток при ошибке агента (tool call fail, API error). |
+| `retry_delay` | string | "5s" | Задержка перед повторной попыткой агента. |
+| `auto_approve` | bool | false | Автоматически принимать все задачи без подтверждения пользователя. |
 
 ### Duration format
 

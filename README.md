@@ -180,6 +180,8 @@ input:
 | `loop.retry_delay` | Задержка перед повторной попыткой | 5s |
 | `loop.max_depth` | Глубина рекурсии subplanners | 3 |
 | `loop.auto_approve` | Автоматически принимать все задачи | `false` |
+| `agents.*.max_history_messages` | Макс. сообщений в истории агента | 50 |
+| `agents.*.provider` | Переопределить LLM-провайдер для конкретной роли | — |
 | `tools.work_dir` | Рабочая директория | `.` |
 | `tools.allowed_shell` | Whitelist shell-команд (пустой = все) | `[]` |
 | `tools.git_enabled` | Включить git tools | `true` |
@@ -293,7 +295,7 @@ code-agents/
 │   ├── task/               # Task, Handoff, thread-safe Queue
 │   ├── orchestrator/       # координация planner + worker pool
 │   ├── runner/             # кросс-платформенный shell (PTY/pipes)
-│   ├── runlog/             # метрики и логи запусков (JSON, сравнение)
+│   ├── runlog/             # метрики и логи запусков (JSON, сравнение прогонов)
 │   ├── logging/            # инициализация логгеров (file + console)
 │   └── version/            # build-time версия
 ├── prompts/                # примеры промптов для задач
