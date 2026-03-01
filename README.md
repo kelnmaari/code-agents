@@ -257,15 +257,43 @@ llama-server \
 ## CLI
 
 ```
-code-agents [OPTIONS] [CONFIG]
+code-agents [OPTIONS] [PROMPT...]
 
 Positional arguments:
-  CONFIG                 path to configuration file (default: code-agents.yaml)
+  PROMPT                 prompt text (overrides config prompt)
 
 Options:
+  -c, --config PATH      path to configuration file (default: code-agents.yaml)
   --init                 generate a new configuration file
+  --profile NAME         named prompt profile to use (loads profiles/<name>.yaml)
+  --runs-dir DIR         directory to save run logs (default: runs)
   --version              show version info
   --help, -h             show help
+
+Subcommands:
+  compare RUN1 RUN2      compare two run log JSON files (from runs/ directory)
+```
+
+### Примеры использования
+
+```bash
+# Запуск с конфигом по умолчанию (code-agents.yaml), промпт из конфига
+code-agents
+
+# Передать промпт напрямую через CLI (переопределяет config.input.prompt)
+code-agents "Add unit tests for the auth module"
+
+# Явно указать путь к конфигу
+code-agents -c /path/to/my-config.yaml "Refactor the database layer"
+
+# Использовать именованный профиль (profiles/backend.yaml)
+code-agents --profile backend "Fix the API rate limiting bug"
+
+# Сгенерировать шаблон конфигурации
+code-agents --init
+
+# Сравнить два прогона
+code-agents compare runs/run-001.json runs/run-002.json
 ```
 
 ---
