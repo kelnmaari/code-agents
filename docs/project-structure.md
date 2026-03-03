@@ -26,8 +26,9 @@ code-agents/
 │   │   ├── config.go                   # загрузка YAML, валидация, дефолты
 │   │   └── config_test.go
 │   ├── llm/
-│   │   ├── types.go                    # ChatMessage, ToolCall, Request/Response
+│   │   ├── types.go                    # ChatMessage, ToolCall, Request/Response, Completer interface
 │   │   ├── client.go                   # OpenAI-compatible HTTP клиент
+│   │   ├── provider_pool.go            # ProviderPool: кэш клиентов по (baseURL, apiKey)
 │   │   └── client_test.go
 │   ├── agent/
 │   │   ├── types.go                    # Role, RunResult
@@ -63,9 +64,15 @@ code-agents/
 │   └── version/
 │       └── version.go                  # версия, коммит, дата сборки (ldflags)
 └── prompts/                            # примеры промптов для задач
+    ├── template.md                     # шаблон для новых промптов
     ├── refactor.md
     ├── add-tests.md
-    └── fix-bugs.md
+    ├── fix-bugs.md
+    ├── cli-calculator.md
+    ├── file-organizer.md
+    ├── markdown-to-html.md
+    ├── rest-api-todo.md
+    └── telegram-weather-bot.md
 ```
 
 ## Назначение пакетов
@@ -157,7 +164,7 @@ Build-time переменные (version, commit, date), заполняемые 
 
 ### `prompts/`
 
-Примеры промптов для типовых задач. Не являются частью Go-кода -- это markdown-файлы, на которые можно ссылаться в конфиге через `input.prompt: "file:./prompts/refactor.md"`.
+Примеры промптов для типовых задач. Не являются частью Go-кода -- это markdown-файлы, на которые можно ссылаться в конфиге через `input.prompt: "file:./prompts/refactor.md"`. Файл `template.md` служит шаблоном для создания новых промптов.
 
 ## Зависимости между пакетами
 

@@ -114,6 +114,21 @@ func NewClient(baseURL, apiKey string) *Client
 func (c *Client) Complete(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 ```
 
+### ProviderPool
+
+```go
+// ProviderPool кэширует LLM клиентов по паре (baseURL, apiKey).
+// Используется оркестратором для поддержки per-agent provider overrides.
+// Thread-safe.
+type ProviderPool struct { ... }
+
+// NewProviderPool создает пустой пул.
+func NewProviderPool() *ProviderPool
+
+// Get возвращает существующий Client или создает новый для заданных credentials.
+func (p *ProviderPool) Get(baseURL, apiKey string) *Client
+```
+
 Клиент отправляет `POST {baseURL}/chat/completions` с заголовками:
 - `Content-Type: application/json`
 - `Authorization: Bearer {apiKey}`
@@ -207,6 +222,12 @@ type RunResult struct {
 
     // ToolCallsCount -- количество выполненных tool calls в этом Step.
     ToolCallsCount int
+
+    // Usage -- накопленное потребление токенов за этот Step.
+    Usage llm.Usage
+
+    // ContextUtilization -- заполненность истории (0.0–1.0+, ratio к maxHistoryMessages).
+    ContextUtilization float64
 }
 ```
 
@@ -215,23 +236,36 @@ type RunResult struct {
 ```go
 // Agent инкапсулирует одного LLM-агента с conversation и tools.
 type Agent struct {
-    id           string          // уникальный ID (nanoid)
-    role         Role
-    client       *llm.Client
-    modelCfg     config.ModelConfig
-    systemPrompt string
-    tools        *tool.Registry
-    messages     []llm.ChatMessage
+    id                 string          // уникальный ID (nanoid)
+    role               Role
+    client             llm.Completer   // интерфейс: Client или mock в тестах
+    modelCfg           config.ModelConfig
+    systemPrompt       string
+    tools              *tool.Registry
+    messages           []llm.ChatMessage
+    maxHistoryMessages int
 }
 
 // New создает агента. Первым сообщением добавляется system prompt.
+// maxHistoryMessages по умолчанию 50.
 func New(
     id string,
     role Role,
-    client *llm.Client,
+    client llm.Completer,
     modelCfg config.ModelConfig,
     systemPrompt string,
     tools *tool.Registry,
+) *Agent
+
+// NewWithConfig создает агента с явным maxHistoryMessages.
+func NewWithConfig(
+    id string,
+    role Role,
+    client llm.Completer,
+    modelCfg config.ModelConfig,
+    systemPrompt string,
+    tools *tool.Registry,
+    maxHistoryMessages int,
 ) *Agent
 
 // Step выполняет один полный "ход" агента:
