@@ -60,30 +60,36 @@ Code-Agents -- многоагентная система для автономн
 
 ```mermaid
 graph TD
-    UP[User Prompt] --> O[Orchestrator]
-    O --> LC[LLM Client]
-    O --> TQ[Task Queue]
-    O --> RP[Root Planner goroutine]
-    O --> WP[Worker Pool - N goroutines]
+    UP[User Prompt] --> O[Orchestrator Loop]
 
-    RP -->|create_task| TQ
-    TQ -->|Pull| WP
+    subgraph "Phase 1+2: Plan & Approve"
+        O --> RP[Root Planner - persistent]
+        RP -->|read_file / list_dir / shell_exec| CB[Codebase Analysis]
+        RP -->|create_task| TQ[Task Queue]
+        TQ --> AP{Approval}
+        AP -->|auto_approve или Y| EXEC[Execute Phase]
+        AP -->|A - Amend| RP
+    end
 
-    WP -->|IsSubplan=false| W[Worker Agent]
-    WP -->|IsSubplan=true| SP[Subplanner Agent]
+    subgraph "Phase 3: Execute"
+        EXEC --> WP[Worker Pool - N goroutines]
+        WP -->|IsSubplan=false| W[Worker Agent]
+        WP -->|IsSubplan=true| SP[Subplanner Agent]
 
-    W -->|complete_task| H1[Handoff]
-    SP -->|submit_handoff| H2[Handoff]
-    SP -->|create_task| TQ
+        W -->|complete_task| H1[Handoff]
+        SP -->|submit_handoff| H2[Handoff]
+        SP -->|create_task| TQ
+    end
 
     H1 --> TQ
     H2 --> TQ
-
     TQ -->|HandoffsFor| RP
     RP -->|CODEAGENTS_DONE| O
 ```
 
 Информация течет **только вверх** через Handoff-документы. Агенты не имеют доступа к глобальному состоянию. Planner видит handoffs только от своих прямых дочерних задач.
+
+Оркестрация работает по принципу **Plan → Approve → Execute**, а не параллельного запуска planner + workers. Planner сначала создаёт план (может анализировать код), пользователь одобряет, затем workers выполняют задачи пакетом.
 
 ## Принципы проектирования
 

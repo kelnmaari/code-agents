@@ -4,6 +4,8 @@
 
 Оркестрация в Code-Agents построена на иерархическом loop-паттерне, адаптированном из clancy. Основное отличие -- clancy запускает один агент в loop, а Code-Agents координирует иерархию агентов через shared task queue.
 
+Каждая итерация оркестратора проходит три фазы: **Plan → Approve → Execute**. После выполнения задач planner переоценивает ситуацию и цикл повторяется до сигнала `CODEAGENTS_DONE`.
+
 ---
 
 ## Phase 1: Initialization
@@ -13,60 +15,121 @@
 ```
 1. Загрузить конфигурацию (уже сделано в cmd/main.go)
 2. Резолвить prompt: inline или file:path → string
-3. Создать llm.Client(baseURL, apiKey)
+3. Создать llm.ProviderPool и llm.Client(baseURL, apiKey)
 4. Создать task.Queue
-5. Создать tool registries:
-   - plannerTools:    {create_task}
-   - subplannerTools: {create_task, submit_handoff}
-   - workerTools:     {read_file, write_file, list_dir, shell_exec,
-                       git_status, git_diff, git_commit, complete_task}
+5. Создать Planner Agent с tool registry:
+   - plannerTools: {create_task, list_dir, read_file, shell_exec}
+   (плюс worker/subplanner tools создаются при выполнении каждой задачи)
 6. Создать context с timeout из config.Loop.Timeout
-7. Создать WaitGroup для goroutines
+7. Запустить главный loop
 ```
 
 ### Инъекция Queue в Tools
 
-Task tools (`create_task`, `complete_task`, `submit_handoff`) нуждаются в ссылке на Queue. Это решается через замыкание при создании tools:
+Task tools (`create_task`, `complete_task`, `submit_handoff`) нуждаются в ссылке на Queue. `create_task` также принимает `parentID` и `depth` для отслеживания иерархии:
 
 ```go
-// Пример: create_task tool получает queue через конструктор
-createTaskTool := tool.NewCreateTask(queue)
+// create_task tool создаётся с parentID и depth
+plannerID, _ := gonanoid.New()
+createTaskTool := tool.NewCreateTask(queue, plannerID, 0) // depth=0 для root planner
 plannerTools.Register(createTaskTool)
+plannerTools.Register(tool.NewListDir(cfg.Tools.WorkDir))
+plannerTools.Register(tool.NewReadFile(cfg.Tools.WorkDir))
+plannerTools.Register(tool.NewShellExec(runner, cfg.Tools.AllowedShell))
 ```
+
+### Persistent Planner
+
+Planner создаётся один раз (`ensurePlanner()`) и **сохраняется между итерациями** — история диалога накапливается. Старые status-сообщения обрезаются через `PruneMessagesByPrefix("=== STATUS UPDATE ===")` перед каждым шагом, чтобы не засорять контекст.
 
 ---
 
-## Phase 2: Root Planner Loop
+## Phase 2: Plan & Approve
 
-Запускается как goroutine в `Orchestrator.runPlanner()`.
+После каждого шага планировщика выполняется проверка одобрения.
 
 ```mermaid
 graph TD
-    A[Создать Planner Agent] --> B[AddUserMessage: user prompt]
-    B --> C[Agent.Step - LLM отвечает create_task calls]
-    C --> D{Output содержит CODEAGENTS_DONE?}
-    D -->|yes| E[Planner завершен]
-    D -->|no| F[Sleep step_delay]
-    F --> G[buildStatusMessage]
-    G --> H[AddUserMessage: status + handoffs]
+    A[runPlanner] --> B[Planner.Step - LLM создаёт задачи]
+    B --> C{Вывод содержит CODEAGENTS_DONE?}
+    C -->|yes, все задачи done| D[Завершение]
+    C -->|yes, но задачи ещё есть| E[Nudge: отклонить преждевременное Done]
+    E --> B
+    C -->|no| F{Новые unapproved задачи?}
+    F -->|нет| G[Перейти к Execute]
+    F -->|auto_approve=true| H[ApproveTasks автоматически]
+    H --> G
+    F -->|auto_approve=false| I[displayPlan: показать задачи]
+    I --> J{Выбор пользователя}
+    J -->|Y - Yes| K[ApproveTasks]
+    K --> G
+    J -->|N - No| L[Abort: plan rejected]
+    J -->|A - Amend| M[Добавить инструкции, Clear, Re-plan]
+    M --> B
+```
+
+### Interactive Approval UI
+
+При `auto_approve: false` (по умолчанию) оркестратор показывает план в консоли:
+
+```
+╔══════════════════════════════════════════════════════════╗
+║                    EXECUTION PLAN                       ║
+╠══════════════════════════════════════════════════════════╣
+║  1. Implement JWT authentication module                  ║
+║     Create JWT-based auth with login/logout endpoints    ║
+║     Scope: auth/ directory                               ║
+║  ──────────────────────────────────────────────────────  ║
+║  2. Add unit tests for auth module                       ║
+╠══════════════════════════════════════════════════════════╣
+║  Total tasks: 2                                          ║
+╚══════════════════════════════════════════════════════════╝
+
+Choose an action:
+  [Y]es    — approve and execute the plan
+  [N]o     — reject and abort
+  [A]mend  — add instructions and re-plan
+```
+
+При `[A]mend` пользователь вводит дополнительные инструкции, очередь очищается, planner получает `ADDITIONAL INSTRUCTIONS FROM USER:` и планирует заново.
+
+---
+
+## Phase 3: Root Planner Loop (внутренняя механика)
+
+Выполняется внутри `runPlanner()`.
+
+```mermaid
+graph TD
+    A[ensurePlanner: создаётся один раз] --> B[AddUserMessage: user prompt]
+    B --> C[PruneMessages: убрать старые статусы]
+    C --> D[AddUserMessage: STATUS UPDATE]
+    D --> E[Agent.Step - LLM вызывает create_task / shell_exec / read_file]
+    E --> F{Output содержит CODEAGENTS_DONE?}
+    F -->|yes + AllDone| G[Planner завершен]
+    F -->|yes + tasks running| H[Nudge planner: преждевременное Done]
     H --> C
+    F -->|no| I[Yield: перейти к Approve+Execute]
+    I --> J[После Execute: снова runPlanner]
+    J --> C
 ```
 
 ### Детализация каждого шага
 
-**Шаг 1: Создание Planner Agent**
+**Шаг 1: Создание Planner Agent (один раз)**
 ```
-agent.New(
-    id:           nanoid(),
-    role:         RolePlanner,
-    client:       llm.Client,
-    modelCfg:     config.Agents.Planner.Model,
-    systemPrompt: config.Agents.Planner.SystemPrompt,
-    tools:        plannerTools,
+agent.NewWithConfig(
+    id:                 nanoid(),
+    role:               RolePlanner,
+    client:             llm.Client,
+    modelCfg:           config.Agents.Planner.Model,
+    systemPrompt:       config.Agents.Planner.SystemPrompt,
+    tools:              plannerTools, // create_task + list_dir + read_file + shell_exec
+    maxHistoryMessages: config.Agents.Planner.MaxHistoryMessages,
 )
 ```
 
-**Шаг 2: Инъекция промпта**
+**Шаг 2: Инъекция промпта (только первый раз)**
 ```
 planner.AddUserMessage(prompt)
 ```
@@ -142,9 +205,9 @@ Planner видит handoffs, failed tasks, и решает:
 
 ---
 
-## Phase 3: Worker Pool
+## Phase 4: Worker Pool
 
-Запускается параллельно с planner: `max_workers` goroutines.
+Запускается внутри `executeWorkers()`: `max_workers` горутин.
 
 ```mermaid
 graph TD
@@ -166,16 +229,18 @@ graph TD
 
 ### Worker Agent Execution
 
-Когда worker получает задачу, создается новый Agent:
+Когда worker получает задачу, создается новый Agent (каждый раз свежий):
 
 ```
-agent.New(
-    id:           nanoid(),
-    role:         RoleWorker,
-    client:       llm.Client,
-    modelCfg:     config.Agents.Worker.Model,
-    systemPrompt: config.Agents.Worker.SystemPrompt,
-    tools:        workerTools,
+agent.NewWithConfig(
+    id:                 nanoid(),
+    role:               RoleWorker,
+    client:             llm.Client,
+    modelCfg:           config.Agents.Worker.Model,
+    systemPrompt:       config.Agents.Worker.SystemPrompt,
+    tools:              workerTools, // read_file, write_file, edit_file, replace_lines,
+                                     // list_dir, shell_exec, git_*, complete_task
+    maxHistoryMessages: config.Agents.Worker.MaxHistoryMessages,
 )
 ```
 
@@ -211,7 +276,7 @@ Worker Agent может вызвать Step() несколько раз (outer l
 
 ---
 
-## Phase 4: Subplanner Recursion
+## Phase 5: Subplanner Recursion
 
 Когда worker goroutine получает задачу с `IsSubplan=true`:
 
@@ -285,7 +350,7 @@ Depth 3: Только Worker (дальнейшая рекурсия запрещ
 
 ---
 
-## Phase 5: Termination
+## Phase 6: Termination
 
 Orchestrator ожидает завершения в main goroutine:
 
