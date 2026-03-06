@@ -75,8 +75,12 @@ go vet ./...
 | create_task | yes | yes | no |
 | submit_handoff | no | yes | no |
 | complete_task | no | no | yes |
-| read_file, write_file, list_dir | no | no | yes |
-| shell_exec | no | no | yes |
+| read_file | yes | no | yes |
+| write_file | no | no | yes |
+| edit_file | no | no | yes |
+| replace_lines | no | no | yes |
+| list_dir | yes | no | yes |
+| shell_exec | yes | no | yes |
 | git_status, git_diff, git_commit | no | no | yes |
 
 ## Documentation
