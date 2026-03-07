@@ -82,9 +82,14 @@ code-agents/
 CLI точка входа. Парсит аргументы командной строки (go-arg), загружает конфигурацию, создает и запускает Orchestrator. Минимум логики -- только wiring.
 
 Поддерживаемые команды:
-- `code-agents --config code-agents.yaml` -- запуск с конфигом
+- `code-agents` -- запуск с конфигом по умолчанию (`code-agents.yaml`)
+- `code-agents -c /path/to/config.yaml` -- запуск с явным конфигом
+- `code-agents "prompt text"` -- передать промпт напрямую (переопределяет `input.prompt`)
+- `code-agents --profile <name>` -- использовать именованный профиль из `profiles/<name>.yaml`
+- `code-agents --runs-dir <dir>` -- директория для сохранения run logs (по умолчанию `runs`)
 - `code-agents --init` -- создание шаблона конфига
 - `code-agents --version` -- вывод версии
+- `code-agents compare <run1.json> <run2.json>` -- сравнение двух прогонов
 
 ### `internal/config`
 

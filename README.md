@@ -70,7 +70,11 @@ code-agents --init
 ### Запуск
 
 ```bash
-code-agents code-agents.yaml
+# Запуск с конфигом по умолчанию (code-agents.yaml)
+code-agents
+
+# Явно указать путь к конфигу
+code-agents -c /path/to/config.yaml
 ```
 
 ---
