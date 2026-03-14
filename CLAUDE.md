@@ -1,6 +1,6 @@
 # Code-Agents
 
-Multi-agent hierarchical coding system on Go 1.25.5. Three agent roles (planner, subplanner, worker) coordinate through a shared task queue with handoff documents flowing upward.
+Multi-agent hierarchical coding system on Go 1.25+. Three agent roles (planner, subplanner, worker) coordinate through a shared task queue with handoff documents flowing upward.
 
 Module: `gitlab.alexue4.dev/kelnmaari/code-agent`
 

@@ -345,7 +345,7 @@ input:
 
 1. `version` == 1
 2. `provider.base_url` -- не пустой, валидный URL
-3. `provider.api_key` -- не пустой; если `env:`, переменная существует
+3. `provider.api_key` -- если `env:VAR_NAME`, переменная окружения должна существовать (пустое значение допустимо для провайдеров без auth)
 4. `agents.*.model.model` -- не пустой для каждой роли
 5. `agents.*.system_prompt` -- не пустой; если `file:`, файл существует
 6. `loop.timeout` и `loop.step_delay` -- парсятся как `time.Duration`
