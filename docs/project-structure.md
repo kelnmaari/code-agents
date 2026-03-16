@@ -63,7 +63,8 @@ code-agents/
 │   │   └── logging.go                  # Init(): настройка File и Console логгеров
 │   └── version/
 │       └── version.go                  # версия, коммит, дата сборки (ldflags)
-└── prompts/                            # примеры промптов для задач
+├── prompts/                            # примеры промптов для задач
+└── profiles/                           # именованные профили конфигурации (опционально)
     ├── template.md                     # шаблон для новых промптов
     ├── refactor.md
     ├── add-tests.md

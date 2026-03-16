@@ -337,9 +337,11 @@ code-agents compare runs/run-001.json runs/run-002.json
 ```
 code-agents/
 ├── cmd/code-agents/        # CLI — точка входа
+│   ├── main.go
+│   └── template.yaml       # embedded шаблон для --init
 ├── internal/
-│   ├── config/             # загрузка YAML, валидация
-│   ├── llm/                # OpenAI-compatible HTTP клиент
+│   ├── config/             # загрузка YAML, валидация, env:/file: резолвинг
+│   ├── llm/                # OpenAI-compatible HTTP клиент + ProviderPool
 │   ├── agent/              # абстракция агента с tool-use loop
 │   ├── tool/               # реализации инструментов (file, shell, git, task)
 │   ├── task/               # Task, Handoff, thread-safe Queue
@@ -349,9 +351,12 @@ code-agents/
 │   ├── logging/            # инициализация логгеров (file + console)
 │   └── version/            # build-time версия
 ├── prompts/                # примеры промптов для задач
+├── profiles/               # именованные профили конфигурации (опционально)
 ├── docs/                   # документация
 └── code-agents.yaml        # пример конфигурации
 ```
+
+> При каждом запуске создаётся `code-agents.log` в текущей директории (перезаписывается). Метрики прогонов сохраняются в `runs/` (JSON, меняется через `--runs-dir`).
 
 > Подробнее: [docs/project-structure.md](docs/project-structure.md)
 
@@ -383,6 +388,44 @@ go test -race -timeout 120s ./...
 
 # Проверка кода
 go vet ./...
+```
+
+### CI/CD (GitLab CI)
+
+Проект использует `.gitlab-ci.yml` с тремя стадиями:
+
+| Стадия | Триггер | Действие |
+|--------|---------|----------|
+| `test` | Любой push | `go vet ./...` + `go test -race -timeout 120s -v ./...` |
+| `build` | Тег `vX.Y.Z` | Docker-сборка бинарников для linux/darwin/windows × amd64/arm64/386 |
+| `release` | Тег `vX.Y.Z` | Создание GitLab Release с прикреплёнными артефактами |
+
+Для релиза достаточно создать тег по маске `v1.2.3`:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+### Логи
+
+При каждом запуске создаётся файл `code-agents.log` в текущей директории (перезаписывается). Консоль выводит краткий лог, файл — подробный с микросекундами.
+
+### Именованные профили
+
+Для разных задач удобно хранить отдельные конфиги в директории `profiles/`:
+
+```
+profiles/
+├── backend.yaml    # конфиг для backend-задач
+├── frontend.yaml   # конфиг для frontend-задач
+└── refactor.yaml   # конфиг для рефакторинга
+```
+
+Запуск:
+
+```bash
+code-agents --profile backend "Fix the API rate limiting bug"
 ```
 
 ---
