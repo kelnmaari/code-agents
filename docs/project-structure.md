@@ -63,17 +63,17 @@ code-agents/
 │   │   └── logging.go                  # Init(): настройка File и Console логгеров
 │   └── version/
 │       └── version.go                  # версия, коммит, дата сборки (ldflags)
-├── prompts/                            # примеры промптов для задач
-└── profiles/                           # именованные профили конфигурации (опционально)
-    ├── template.md                     # шаблон для новых промптов
-    ├── refactor.md
-    ├── add-tests.md
-    ├── fix-bugs.md
-    ├── cli-calculator.md
-    ├── file-organizer.md
-    ├── markdown-to-html.md
-    ├── rest-api-todo.md
-    └── telegram-weather-bot.md
+├── prompts/                            # примеры промптов для задач (markdown, не Go-код)
+│   ├── template.md                     # шаблон для новых промптов
+│   ├── refactor.md
+│   ├── add-tests.md
+│   ├── fix-bugs.md
+│   ├── cli-calculator.md
+│   ├── file-organizer.md
+│   ├── markdown-to-html.md
+│   ├── rest-api-todo.md
+│   └── telegram-weather-bot.md
+└── profiles/                           # именованные профили конфигурации (опционально, .yaml)
 ```
 
 ## Назначение пакетов
