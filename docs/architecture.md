@@ -155,7 +155,7 @@ graph LR
 
 ## Взаимодействие с LLM
 
-Все агенты используют один `llm.Client` (thread-safe) с OpenAI-compatible `/chat/completions` endpoint. Различия между типами агентов:
+Агенты используют `llm.ProviderPool` — кэш thread-safe клиентов, позволяющий каждой роли работать со своим LLM-провайдером. Если `agents.*.provider` не задан, все роли используют глобальный `provider`. Каждый клиент отправляет запросы на `/chat/completions` OpenAI-compatible endpoint. Различия между типами агентов:
 
 | Аспект | Planner | Subplanner | Worker |
 |--------|---------|------------|--------|
